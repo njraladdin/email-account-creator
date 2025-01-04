@@ -270,7 +270,6 @@ with SB(uc=True,
                             sb.cdp.evaluate("window.devicePixelRatio = 2.4")
                             sb.cdp.evaluate("document.body.style.zoom = '240%'")
 
-                            sb.sleep(1)  # Wait for images to load
                             # Get total number of images from aria-label
                             img_element = sb.find_element('img[aria-live="assertive"]')
                             aria_label = img_element.get_attribute('aria-label')
@@ -279,10 +278,14 @@ with SB(uc=True,
                             
                             # Capture all images
                             for i in range(total_images):
+                                # Find current image and scroll it into view
+                                current_img = sb.find_element('.match-game.box.screen > div > h2')
+                                sb.execute_script("arguments[0].scrollIntoView(true);", current_img)
+                                sb.sleep(1)  # Wait for scroll to complete
+                                
                                 # Take screenshot and add solution text
                                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                                 screenshot_path = f"screenshots/captcha_image_{i+1}_{timestamp}.png"
-                                sb.sleep(1)  # Wait for images to load
                                 sb.save_screenshot(screenshot_path)
                                 add_solution_text(screenshot_path, i+1)
                                 
@@ -325,7 +328,7 @@ with SB(uc=True,
             # Now solve the captcha with the extracted token
             if token_value:
                 print("Attempting to solve captcha...")
-                sb.sleep(50)
+                sb.sleep(2)
                 current_url = sb.cdp.get_current_url()  # Get current URL before solving
                 solved_token = solve_captcha(token_value, current_url)
                 if solved_token:
