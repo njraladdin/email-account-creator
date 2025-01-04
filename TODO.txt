@@ -1,0 +1,19 @@
+try web unlocker (sucess, rarely)
+
+try :https://github.com/seleniumbase/SeleniumBase 
+
+ (paid option ofg CheshireCaat/puppeteer-with-fingerprints with more fingerprinting options )
+https://fp.bablosoft.com/#pricing
+
+
+
+try that hero package : https://github.com/ulixee/hero
+
+
+try more with tls 
+
+
+---
+
+
+give up on 2captcha, use gemini to solve the captcha using seleniumbase 

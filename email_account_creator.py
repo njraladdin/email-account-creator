@@ -69,20 +69,97 @@ import base64
 import time
 import json
 from datetime import datetime
+
+from twocaptcha import TwoCaptcha
+import os
+from dotenv import load_dotenv
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Get 2captcha API key from environment variables and set longer timeout (240 seconds = 4 minutes)
+solver = TwoCaptcha(
+    os.getenv('2CAPTCHA_API_KEY'),
+    defaultTimeout=500,  # Increase timeout to 4 minutes
+    pollingInterval=5
+)
+print(os.getenv('2CAPTCHA_API_KEY'))
+
+# At the top with other constants
+USE_PROXY = True  # Change this to True to enable proxy
+
+PROXY = {
+    "host": "mobile.free.proxyrack.net",
+    "port": "9000",
+    "username": "qwerty2950-proxyId-PR6BRYBFFM",
+    "password": "728ec0c31301f4ff1f133e6d494af7df205998b8db2769ae7474f46bfc2d5b5f"
+}
+print(PROXY)
+def get_proxy_url():
+    if not USE_PROXY:
+        return None
+    if PROXY.get("username") and PROXY.get("password"):
+        return f"http://{PROXY['username']}:{PROXY['password']}@{PROXY['host']}:{PROXY['port']}"
+    return f"http://{PROXY['host']}:{PROXY['port']}"
+
 class Encryptor:
     def __init__(self):
         self._cipher = js_compile(open("cipher_value.js").read())
 
     def encrypt_value(self, password, num, key) -> str:
         return self._cipher.call("encrypt", password, num, key)
+def solve_captcha(arkose_blob):
+    """Solve FunCaptcha using 2captcha service"""
+    try:
+        print(f"\n[Captcha] Solving FunCaptcha with blob: {arkose_blob}")
+        
+        # Format proxy in URI format: login:password@IP_address:PORT
+        proxy_config = {
+            'type': 'HTTP',
+            'uri': f"{PROXY['username']}:{PROXY['password']}@{PROXY['host']}:{PROXY['port']}"
+        }
+        
+        print(f"\n[Debug] Using proxy config: {proxy_config}")  # Debug line
+        
+        # Properly format the data parameter as a JSON string
+        data_str = json.dumps({"blob": arkose_blob})
+        
+        result = solver.funcaptcha(
+            sitekey='B7D8911C-5CC8-A9A3-35B0-554ACEE604DA',
+            url='https://signup.live.com',
+            surl='https://iframe.arkoselabs.com',
+            data=data_str,
+            proxy=proxy_config,  # Using ProxyRack proxy in URI format
+            userAgent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+        )
+        
+        print(f"\n[Captcha] Raw result: {result}")  # Add debug logging
+        
+        if result and isinstance(result, dict) and 'code' in result:
+            print("\n[Captcha] Successfully solved captcha")
+            return result['code']
+        elif result and isinstance(result, str):
+            print("\n[Captcha] Got string result")
+            return result
+            
+        print("\n[Captcha] Failed to get valid response from 2captcha")
+        return None
 
+    except Exception as e:
+        print(f"\n[Captcha] Error solving captcha: {str(e)}")
+        print(f"\n[Captcha] Error type: {type(e)}")
+        return None
+    
 def make_first_request():
     """Make the initial request to signup.live.com"""
     try:
         # Create TLS session
         session = tls_client.Session(
-            client_identifier="chrome126",
+             client_identifier="firefox_120",
             random_tls_extension_order=True
+         
         )
 
         # Headers for initial request
@@ -93,13 +170,14 @@ def make_first_request():
             "Connection": "keep-alive",
             "Host": "signup.live.com",
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
-        # Make request
+        # Make request with proxy
         resp1 = session.get(
             "https://signup.live.com/signup", 
-            headers=headers
+            headers=headers,
+            proxy=get_proxy_url()
         )
 
         # Parse response
@@ -135,7 +213,7 @@ def make_second_request(first_request_data):
             "Connection": "keep-alive",
             "Host": "login.live.com",  # Changed host for second request
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         # Add cookies from first request
@@ -147,7 +225,8 @@ def make_second_request(first_request_data):
         resp2 = session.get(
             href_value,
             headers=headers,
-            cookies=cookies
+            cookies=cookies,
+            proxy=get_proxy_url()
         )
 
         if resp2.cookies.get("uaid"):
@@ -177,7 +256,7 @@ def make_third_request(first_result, second_result):
             "Connection": "keep-alive",
             "Host": "signup.live.com",
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         # Add cookies from previous requests
@@ -189,10 +268,10 @@ def make_third_request(first_result, second_result):
         resp3 = session.get(
             f"https://signup.live.com/signup?lic=1&uaid={uaid}",
             headers=headers,
-            cookies=cookies
+            cookies=cookies,
+            proxy=get_proxy_url()
         )
 
-        
         # Save JS content for debugging
         debug_dir = "debug"
         if not os.path.exists(debug_dir):
@@ -200,41 +279,6 @@ def make_third_request(first_result, second_result):
             
         with open(os.path.join(debug_dir, "resp3_content.html"), "w", encoding="utf-8") as f:
             f.write(resp3.text)
-
-        # List all script tags
-        soup = BeautifulSoup(resp3.text, "html.parser")
-        script_tags = soup.find_all("script")
-        
-        print("\n[Debug] Found script tags:")
-        for i, script in enumerate(script_tags):
-            src = script.get("src", "inline script")
-            print(f"{i+1}. {src}")
-            if "inline script" in src and script.string:
-                print(f"   Content preview: {script.string[:100]}...")
-
-        # Extract and fetch the external JS bundle
-        soup = BeautifulSoup(resp3.text, "html.parser")
-        js_bundle = soup.find("script", {"class": "error-handling-tag"})
-        
-        # if js_bundle and js_bundle.get("src"):
-        #     bundle_url = js_bundle["src"]
-        #     print(f"\n[Debug] Found JS bundle URL: {bundle_url}")
-            
-        #     bundle_headers = {
-        #         "Accept": "*/*",
-        #         "Accept-Encoding": "gzip, deflate, br, zstd",
-        #         "Accept-Language": "en-US,en;q=0.9",
-        #         "Connection": "keep-alive",
-        #         "Referer": "https://signup.live.com/",
-        #         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        #     }
-
-        #     bundle_resp = session.get(bundle_url, headers=bundle_headers)
-            
-        #     # Save bundle content
-        #     with open(os.path.join(debug_dir, "resp3_bundle.js"), "w", encoding="utf-8") as f:
-        #         f.write(bundle_resp.text)
-        #     print("\n[Debug] Saved JS bundle to debug/resp3_bundle.js")
 
         # Continue with original value extraction...
         js_content = resp3.text
@@ -323,7 +367,7 @@ def make_fourth_request(first_result, third_result):
             "Host": "fpt.live.com",
             "Referer": "https://signup.live.com/",
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         # Add cookies from previous requests
@@ -335,7 +379,8 @@ def make_fourth_request(first_result, third_result):
         resp4 = session.get(
             fptLink1,
             headers=headers,
-            cookies=cookies
+            cookies=cookies,
+            proxy=get_proxy_url()
         )
 
         # Save response content for debugging
@@ -412,7 +457,7 @@ def make_fifth_request(first_result, fourth_result):
             "Host": "fpt2.microsoft.com",
             "Referer": "https://fpt.live.com/",
             "Upgrade-Insecure-Requests": "1",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         cookies = {
@@ -425,7 +470,12 @@ def make_fifth_request(first_result, fourth_result):
         print(f"URL: {url}")
         print(f"Cookies being sent: {cookies}")
 
-        resp5 = session.get(url, headers=headers, cookies=cookies)
+        resp5 = session.get(
+            url,
+            headers=headers,
+            cookies=cookies,
+            proxy=get_proxy_url()
+        )
         
         # Save response content for debugging
         debug_dir = "debug"
@@ -448,9 +498,7 @@ def make_fifth_request(first_result, fourth_result):
             return None
             
         script_content = script_match.group(1)
-        print("\n[Debug] Found Script Content:")
-        print(script_content)
-        
+
         # Step 2: Look for the variables declared at the end
         # This pattern matches the block of variable declarations after the BaseStamp function
         vars_match = re.search(r'var\s+sid\s*=\s*"([^"]+)",\s*cid\s*=\s*"([^"]+)",\s*id\s*=\s*"([^"]+)"', script_content)
@@ -463,18 +511,16 @@ def make_fifth_request(first_result, fourth_result):
             
         # Get the id value directly from the vars_match
         encoded_id = vars_match.group(3)  # Third capture group contains the id value
-        print("\n[Debug] Found encoded id:")
         print(f"Raw encoded value: {encoded_id}")
         
         # Split and convert each octal value
         octal_parts = [x for x in encoded_id.split('\\') if x]
-        print(f"Octal parts: {octal_parts}")
         
         try:
             real_muid = ''.join(chr(int(x, 8)) for x in octal_parts)
-            print(f"\n[Debug] Conversion steps:")
-            for part in octal_parts:
-                print(f"Converting {part} -> {chr(int(part, 8))}")
+            # print(f"\n[Debug] Conversion steps:")
+            # for part in octal_parts:
+            #     print(f"Converting {part} -> {chr(int(part, 8))}")
         except ValueError as ve:
             print(f"\n[Debug] Failed to convert octal values: {str(ve)}")
             return None
@@ -540,7 +586,7 @@ def make_sixth_request(first_result, third_result, fourth_result, fifth_result, 
             "hpgid": "200639",
             "Origin": "https://signup.live.com",
             "Referer": f"https://signup.live.com/signup?lic=1&uaid={uaid}",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         print("\n[Request 6] Making request with:")
@@ -552,7 +598,7 @@ def make_sixth_request(first_result, third_result, fourth_result, fifth_result, 
             "https://signup.live.com/API/CheckAvailableSigninNames",
             headers=headers,
             json=data,
-            cookies=cookies
+            proxy=get_proxy_url()
         )
 
         if resp6.status_code != 200:
@@ -603,7 +649,9 @@ def decode_url(encoded_string):
         encoded_string
     )
 
-def make_seventh_request(first_result, third_result, fourth_result, fifth_result, sixth_result, email, password):
+
+
+def make_seventh_request(first_result,second_result, third_result, fourth_result, fifth_result, sixth_result, email, password):
     """Make the seventh request to attempt account creation (pre-CAPTCHA)"""
     try:
         session = sixth_result["session"]
@@ -612,15 +660,15 @@ def make_seventh_request(first_result, third_result, fourth_result, fifth_result
         current_time = datetime.utcnow()
         formatted_time = current_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
-        # Prepare request data - now without encryption
+        # Prepare initial request data
         data = {
             "RequestTimeStamp": formatted_time,
             "MemberName": email,
-            "Password": password,  # Send password directly
+            "Password": password,
             "CheckAvailStateMap": [f"{email}:false"],
-            "FirstName": "justmanooo",
-            "LastName": "exploited7",
-            "BirthDate": "17:11:1999",
+            "FirstName": "Aladdin",
+            "LastName": "Najjar",
+            "BirthDate": "16:10:2001",
             "Country": "TN",
             "IsOptOutEmailDefault": False,
             "IsOptOutEmailShown": True,
@@ -632,7 +680,7 @@ def make_seventh_request(first_result, third_result, fourth_result, fifth_result
             "ReturnUrl": None,
             "SignupReturnUrl": None,
             "uiflvr": 1001,
-            "uaid": third_result.get("uaid"),
+            "uaid": second_result.get("uaid"),
             "SuggestedAccountType": "EASI",
             "scid": 100118,
             "hpgid": 200650,
@@ -659,25 +707,26 @@ def make_seventh_request(first_result, third_result, fourth_result, fifth_result
             "Referer": "https://signup.live.com/?lic=1",
             "scid": "100118",
             "tcxt": sixth_result["telemetry_context"],
-            "uaid": third_result.get("uaid"),
+            "uaid": second_result.get("uaid"),
             "uiflvr": "1001",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "x-ms-apiTransport": "xhr",
             "x-ms-apiVersion": "2",
         }
 
-        # Make the request
+        # Make initial request to get arkose blob
         resp7 = session.post(
             "https://signup.live.com/API/CreateAccount?lic=1",
             headers=headers,
-            json=data
+            json=data,
+            proxy=get_proxy_url()
         )
 
-        # Parse response
-        response_data = resp7.json()
-
-        if "error" in response_data:
-            error_data = response_data["error"]
+        # Parse response to get arkose blob
+        resp_data = resp7.json()
+        print(f"Response: {resp_data}")
+        if "error" in resp_data:
+            error_data = resp_data["error"]
             result = {
                 "session": session,
                 "cookies": resp7.cookies,
@@ -694,7 +743,24 @@ def make_seventh_request(first_result, third_result, fourth_result, fifth_result
                     "arkose_blob": data.get("arkoseBlob")
                 })
 
-            print("\n[Request 7] Successfully got CAPTCHA challenge")
+                if "arkoseBlob" in data:
+                    arkose_blob = data["arkoseBlob"]
+                    print("\n[Request 7] Successfully got CAPTCHA challenge")
+                    print("\n[Request 7] Got arkose blob, solving captcha...")
+                    
+                    # Solve the captcha
+                    captcha_token = solve_captcha(arkose_blob)
+                    print('request 7: ', captcha_token)
+                    if not captcha_token:
+                        print("\n[Request 7] Failed to solve captcha")
+                        return None
+                    print(f"\n[Captcha] Solved captcha: {captcha_token}")
+                    # Add solved captcha token to result
+                    result["captcha_token"] = captcha_token
+                    print('request 7: ', result)
+                    return result
+
+            print("\n[Request 7] Failed - No arkose blob in response")
             return result
 
         print("\n[Request 7] Failed - Unexpected response format")
@@ -702,11 +768,309 @@ def make_seventh_request(first_result, third_result, fourth_result, fifth_result
 
     except Exception as e:
         print(f"\n[Request 7] Failed with exception: {str(e)}")
+        print(f"Exception type: {type(e).__name__}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
         return None
 
-def main():
-    # Generate random email
-    email = f"dododod1231@outlook.com"
+def make_final_request(first_result, third_result, fourth_result, fifth_result, sixth_result, seventh_result, email, password):
+    """Make the final request to create the account after CAPTCHA is solved"""
+    try:
+        session = seventh_result["session"]
+        
+        # Get CAPTCHA solution and risk assessment details
+        captcha_token = seventh_result.get("captcha_token")
+        
+        print("\n[Final Request Debug] Initial values:")
+        print(f"CAPTCHA token: {captcha_token[:50]}...") # Print first 50 chars
+        print(f"Risk Assessment Details: {seventh_result.get('risk_assessment_details')}")
+        
+        if not captcha_token:
+            print("\n[Final Request] No CAPTCHA token available")
+            return None
+            
+        # First, we need to report the client event for loading enforcement
+        timestamp = str(int(time.time() * 1000))
+        load_enforcement_data = {
+            "pageApiId": 201040,
+            "clientDetails": [],
+            "country": "TN",
+            "userAction": "Action_LoadEnforcement,Action_ClientSideTelemetry",
+            "source": "UserAction",
+            "clientTelemetryData": {
+                "category": "UserAction",
+                "pageName": "201040",
+                "eventInfo": {
+                    "timestamp": timestamp,
+                    "enforcementSessionToken": None,
+                    "appVersion": None,
+                    "networkType": None,
+                },
+            },
+            "cxhFunctionRes": None,
+            "netId": None,
+            "uiflvr": 1001,
+            "uaid": third_result.get("uaid"),
+            "scid": 100118,
+            "hpgid": 201040,
+        }
+
+        # Headers for the load enforcement request
+        report_headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-US,en;q=0.9",
+            "canary": seventh_result.get("api_canary"),
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Cookie": (f'amsc={first_result["cookies"].get("amsc")}; '
+                      f'MUID={fourth_result["cookies"].get("MUID")}; '
+                      f'fptctx2={fourth_result["cookies"].get("fptctx2")}; '
+                      f'clrc={{"19861":["d7PFy/1V","+VC+x0R6","FutSZdvn"]}}; '
+                      f'ai_session={generate_ai_session()}'),
+            "Host": "signup.live.com",
+            "tcxt": seventh_result.get("telemetry_context"),
+            "uaid": third_result.get("uaid"),
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        }
+
+        # Add debug logging for load enforcement request
+        print("\n[Final Request Debug] Load Enforcement Request:")
+        print(f"URL: https://signup.live.com/API/ReportClientEvent?lic=1")
+        print(f"Headers: {json.dumps(report_headers, indent=2)}")
+        print(f"Data: {json.dumps(load_enforcement_data, indent=2)}")
+        
+        # Make the load enforcement request
+        load_resp = session.post(
+            "https://signup.live.com/API/ReportClientEvent?lic=1",
+            headers=report_headers,
+            json=load_enforcement_data,
+            proxy=get_proxy_url()
+        )
+        
+        print(f"\n[Final Request Debug] Load Enforcement Response:")
+        print(f"Status Code: {load_resp.status_code}")
+        print(f"Response: {load_resp.text}")
+        
+        if load_resp.status_code != 200:
+            print("\n[Final Request] Load enforcement request failed")
+            return None
+
+        load_resp_data = load_resp.json()
+        api_canary = load_resp_data.get("apiCanary")
+        telemetry_context = load_resp_data.get("telemetryContext")
+
+        # Now report the completion of enforcement
+        complete_enforcement_data = {
+            "pageApiId": 201040,
+            "clientDetails": [],
+            "country": "TN",
+            "userAction": "Action_CompleteEnforcement,Action_ClientSideTelemetry",
+            "source": "UserAction",
+            "clientTelemetryData": {
+                "category": "UserAction",
+                "pageName": "201040",
+                "eventInfo": {
+                    "timestamp": timestamp,
+                    "enforcementSessionToken": seventh_result.get("captcha_token"),
+                    "appVersion": None,
+                    "networkType": None,
+                },
+            },
+            "cxhFunctionRes": None,
+            "netId": None,
+            "uiflvr": 1001,
+            "uaid": third_result.get("uaid"),
+            "scid": 100118,
+            "hpgid": 201040,
+        }
+
+        # Update headers with new values
+        report_headers.update({
+            "canary": api_canary,
+            "tcxt": telemetry_context
+        })
+
+        # Add debug logging for complete enforcement request
+        print("\n[Final Request Debug] Complete Enforcement Request:")
+        print(f"Headers: {json.dumps(report_headers, indent=2)}")
+        print(f"Data: {json.dumps(complete_enforcement_data, indent=2)}")
+        
+        # Make the complete enforcement request
+        complete_resp = session.post(
+            "https://signup.live.com/API/ReportClientEvent?lic=1",
+            headers=report_headers,
+            json=complete_enforcement_data,
+            proxy=get_proxy_url()
+        )
+
+        if complete_resp.status_code != 200:
+            print("\n[Final Request] Complete enforcement request failed")
+            return None
+
+        complete_resp_data = complete_resp.json()
+        api_canary = complete_resp_data.get("apiCanary")
+        telemetry_context = complete_resp_data.get("telemetryContext")
+        print(f"\n[Final Request Debug] Complete Enforcement Response:")
+        print(f"Status Code: {complete_resp.status_code}")
+        print(f"Response: {complete_resp.text}")
+        # Now proceed with the final account creation request
+        # Get current UTC timestamp
+        current_time = datetime.utcnow()
+        formatted_time = current_time.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+        # Get required values from previous requests
+        key = third_result["values"].get("key")
+        random_num = third_result["values"].get("random_num")
+        ski = third_result["values"].get("ski")
+        fid = third_result["values"].get("fid")
+        
+        # Encrypt password
+        encryptor = Encryptor()
+        encrypted_value = encryptor.encrypt_value(password, random_num, key)
+
+        # Prepare final request data
+        final_data = {
+            "RequestTimeStamp": formatted_time,
+            "MemberName": email,
+            "CheckAvailStateMap": [f"{email}:undefined"],
+            "EvictionWarningShown": [],
+            "UpgradeFlowToken": {},
+            "FirstName": "Aladdin",
+            "LastName": "Najjar",
+            "Password": password,
+            "MemberNameChangeCount": 1,
+            "MemberNameAvailableCount": 1,
+            "MemberNameUnavailableCount": 0,
+            "CipherValue": encrypted_value,
+            "SKI": ski,
+            "BirthDate": "17:11:1999",
+            "IsUserConsentedToChinaPIPL": False,
+            "Country": "TN",
+            "IsOptOutEmailDefault": True,
+            "VerificationCode": None,
+            "IsOptOutEmailShown": 1,
+            "IsOptOutEmail": True,
+            "VerificationCodeSlt": None,
+            "PrefillMemberNamePassed": True,
+            "LW": 1,
+            "SiteId": "68692",
+            "IsRDM": False,
+            "WReply": None,
+            "ReturnUrl": None,
+            "SignupReturnUrl": None,
+            "uiflvr": 1001,
+            "uaid": third_result.get("uaid"),
+            "SuggestedAccountType": "EASI",
+            "HFId": fid,
+            "HType": "enforcement",
+            "HSol": seventh_result.get("captcha_token"),
+            "HPId": "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA",
+            "scid": 100118,
+            "hpgid": 200639,
+        }
+
+        # Add risk assessment details if available
+        if seventh_result.get("risk_assessment_details"):
+            final_data["RiskAssessmentDetails"] = seventh_result["risk_assessment_details"]
+
+        # Update headers for final request
+        final_headers = {
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-US,en;q=0.9",
+            "canary": api_canary,
+            "Connection": "keep-alive",
+            "Content-Type": "application/json",
+            "Cookie": (f'amsc={first_result["cookies"].get("amsc")}; '
+                      f'MicrosoftApplicationsTelemetryDeviceId=dfa874b8-9e17-4654-bb56-42187176e7ad; '
+                      f'MUID={fourth_result["cookies"].get("MUID")}; '
+                      f'fptctx2={fourth_result["cookies"].get("fptctx2")}; '
+                      f'clrc={{"19861":["d7PFy/1V","+VC+x0R6","FutSZdvn"]}}; '
+                      f'ai_session={generate_ai_session()}'),
+            "Host": "signup.live.com",
+            "hpgid": "200639",
+            "Origin": "https://signup.live.com",
+            "Referer": "https://signup.live.com/?lic=1",
+            "scid": "100118",
+            "tcxt": telemetry_context,
+            "uaid": third_result.get("uaid"),
+            "uiflvr": "1001",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "x-ms-apiTransport": "xhr",
+            "x-ms-apiVersion": "2",
+        }
+
+        # Add debug logging for final request
+        print("\n[Final Request Debug] Final Account Creation Request:")
+        print(f"Headers: {json.dumps(final_headers, indent=2)}")
+        print(f"Data: {json.dumps(final_data, indent=2)}")
+        
+        # Make final account creation request
+        final_resp = session.post(
+            "https://signup.live.com/API/CreateAccount?lic=1",
+            headers=final_headers,
+            json=final_data,
+            proxy=get_proxy_url()
+        )
+
+        print(f"\n[Final Request Debug] Final Response:")
+        print(f"Status Code: {final_resp.status_code}")
+        print(f"Response: {final_resp.text}")
+
+        if final_resp.status_code == 200:
+            print(f"\n[Final Request] Successfully created account: {email}")
+            with open("output/created_accounts.txt", "a") as f:
+                f.write(f"{email}:{password}\n")
+            return {
+                "success": True,
+                "email": email,
+                "password": password
+            }
+        else:
+            print(f"\n[Final Request] Failed with status code: {final_resp.status_code}")
+            print(f"Response: {final_resp.text}")
+            return None
+
+    except Exception as e:
+        print(f"\n[Final Request] Failed with exception: {str(e)}")
+        print(f"Exception type: {type(e).__name__}")
+        import traceback
+        print(f"Full traceback:\n{traceback.format_exc()}")
+        return None
+
+def generate_random_email():
+    """Generate a random email address with @outlook.com"""
+    import random, string
+    return f"aladynjr228046455" + "@outlook.com"
+
+def generate_random_password():
+    """Generate a random strong password"""
+    import random, string
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(random.choices(chars, k=12))
+
+def email_account_creator(thread_id=None):
+    """
+    Creates a single email account. Can be run in parallel.
+    
+    Args:
+        thread_id: Optional identifier for the thread running this function
+    
+    Returns:
+        dict: Account credentials if successful, None if failed
+        {
+            'email': email address,
+            'password': password
+        }
+    """
+    # Generate random email and password
+    email = generate_random_email()
+    password = generate_random_password()
+    
+    print(f"\n[Thread {thread_id}] Attempting to create account with:")
+    print(f"Email: {email}")
+    print(f"Password: {password}")
     
     # Make first request
     first_result = make_first_request()
@@ -756,13 +1120,29 @@ def main():
         print("\nFailed to complete sixth request")
         return
 
-    # Make seventh request
-    seventh_result = make_seventh_request(first_result, third_result, fourth_result, fifth_result, sixth_result, email, "@izlamihhz2z")
+    # Make seventh request (CAPTCHA)
+    seventh_result = make_seventh_request(first_result,second_result, third_result, fourth_result, fifth_result, sixth_result, email, password)
     if not seventh_result:
         print("\nFailed to complete seventh request")
         return
 
-    print("\nAll requests completed successfully!")
+    # Make final request
+    final_result = make_final_request(first_result, third_result, fourth_result, fifth_result, sixth_result, seventh_result, email, password)
+    if final_result and final_result["success"]:
+        print(f"\n[Thread {thread_id}] Successfully created account: {final_result['email']}:{final_result['password']}")
+        return {
+            'email': final_result['email'],
+            'password': final_result['password']
+        }
+    else:
+        print(f"\n[Thread {thread_id}] Failed to create account")
+        return None
 
+# Add back the main execution block
 if __name__ == "__main__":
-    main()
+    # When run directly, execute without thread_id
+    result = email_account_creator()
+    if result:
+        print("\n=== Account Creation Successful ===")
+        print(f"Email: {result['email']}")
+        print(f"Password: {result['password']}")

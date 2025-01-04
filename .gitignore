@@ -37,3 +37,11 @@ htmlcov/
 
 # Logs
 *.log
+
+
+.pytest_cache/
+__pycache__/
+data/
+experiments/
+screenshots/
+downloaded_files/
