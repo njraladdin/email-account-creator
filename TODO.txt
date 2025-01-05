@@ -17,3 +17,7 @@ try more with tls
 
 
 give up on 2captcha, use gemini to solve the captcha using seleniumbase 
+
+----
+
+try audio captcha 
