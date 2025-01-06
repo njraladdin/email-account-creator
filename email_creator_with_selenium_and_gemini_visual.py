@@ -1,32 +1,30 @@
 from seleniumbase import SB
-import time
 import random
 import json
 import os
 from dotenv import load_dotenv
 from datetime import datetime
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 from typing import List
 import asyncio
-import aiohttp
-from concurrent.futures import ThreadPoolExecutor
 from google.ai.generativelanguage_v1beta.types import content
-import concurrent.futures
-import threading
-from colorama import init, Fore
+from colorama import  Fore
 from utils import (
     generate_account_info,
     update_stats,
     save_account,
     get_success_percentage,
     ATTEMPTS,
-    GENNED
+    GENNED,
+    get_config
 )
 import sys
 from multiprocessing import Process
 
 load_dotenv()
+
+config = get_config()
 
 MODEL_NAME = "gemini-2.0-flash-exp"
 
@@ -279,7 +277,7 @@ def process_images_with_gemini(screenshot_paths: List[str]) -> str:
     print("Initializing Gemini AI processing...")
     
     try:
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        genai.configure(api_key=GEMINI_API_KEY)
         
         # Create event loop and run concurrent uploads
         loop = asyncio.new_event_loop()
@@ -469,32 +467,41 @@ def test_gemini_with_latest_screenshots():
 
 
 
-MAX_CONCURRENT_TASKS = 1  # Adjust this number based on your system's capabilities
-
+MAX_CONCURRENT_TASKS = config['concurrent_tasks']  # Adjust this number based on your system's capabilities
+GEMINI_API_KEY = config['gemini_api_key']
 def main():
     """Main function to run multiple selenium instances concurrently"""
-    print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
-    
-    while True:
-        try:
-            processes = []
-            for _ in range(MAX_CONCURRENT_TASKS):
-                p = Process(target=selenium_base_with_gemini)
-                p.start()
-                processes.append(p)
+    try:
+        # Check for Gemini API key directly
+        if not os.getenv("GEMINI_API_KEY"):
+            raise EnvironmentError(f"{Fore.RED}GEMINI_API_KEY not found in environment variables. Please add your Gemini API key to the .env file{Fore.RESET}")
             
-            # Wait for processes
-            for p in processes:
-                p.join()
+        print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
+        
+        while True:
+            try:
+                processes = []
+                for _ in range(MAX_CONCURRENT_TASKS):
+                    p = Process(target=selenium_base_with_gemini)
+                    p.start()
+                    processes.append(p)
                 
-        except KeyboardInterrupt:
-            print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
-            for p in processes:
-                p.terminate()
-            sys.exit(0)
-        except Exception as e:
-            print(f"{Fore.RED}Main loop error: {str(e)}{Fore.RESET}")
-            continue
+                # Wait for processes
+                for p in processes:
+                    p.join()
+                    
+            except KeyboardInterrupt:
+                print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
+                for p in processes:
+                    p.terminate()
+                sys.exit(0)
+                
+    except EnvironmentError as e:
+        print(str(e))
+        sys.exit(1)
+    except Exception as e:
+        print(f"{Fore.RED}Fatal error: {str(e)}{Fore.RESET}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

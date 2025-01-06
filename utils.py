@@ -3,6 +3,7 @@ import os
 import json
 from datetime import datetime
 from colorama import init, Fore
+import yaml
 
 # Initialize colorama
 init()
@@ -121,3 +122,35 @@ def generate_account_info():
     print(json.dumps(account_info, indent=2))
     
     return account_info 
+
+def get_config():
+    """Load configuration from config.yml with fallback to environment variables"""
+    try:
+        # Try to load from config.yml
+        with open('config.yml', 'r') as f:
+            config = yaml.safe_load(f)
+            
+        # If gemini_api_key is not in config or is the default value, try env var
+        if not config.get('gemini_api_key') or config['gemini_api_key'] == "your-api-key-here":
+            env_key = os.getenv("GEMINI_API_KEY")
+            if env_key:
+                config['gemini_api_key'] = env_key
+            else:
+                raise ValueError("Gemini API key not found in config.yml or environment variables")
+                
+        # Ensure concurrent_tasks exists with default value
+        if 'concurrent_tasks' not in config:
+            config['concurrent_tasks'] = 1
+            
+        return config
+        
+    except FileNotFoundError:
+        # If config.yml doesn't exist, try environment variables
+        env_key = os.getenv("GEMINI_API_KEY")
+        if not env_key:
+            raise ValueError("Neither config.yml nor GEMINI_API_KEY environment variable found")
+            
+        return {
+            'gemini_api_key': env_key,
+            'concurrent_tasks': 1
+        } 

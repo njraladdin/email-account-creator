@@ -1,5 +1,4 @@
 from seleniumbase import SB
-import time
 import json
 import os
 from dotenv import load_dotenv
@@ -8,28 +7,29 @@ import google.generativeai as genai
 from typing import List
 import asyncio
 import aiohttp
-from concurrent.futures import ThreadPoolExecutor
 from google.ai.generativelanguage_v1beta.types import content
-from colorama import init, Fore
-import concurrent.futures
-import threading
+from colorama import  Fore
 from utils import (
     generate_account_info,
     update_stats,
     save_account,
     get_success_percentage,
     ATTEMPTS,
-    GENNED
+    GENNED,
+    get_config
 )
-import signal
 import sys
 from multiprocessing import Process
 
 load_dotenv()
+# Load configuration
+config = get_config()
 
-MODEL_NAME = "gemini-exp-1206"
+# Use config values
+GEMINI_API_KEY=config['gemini_api_key']
+MAX_CONCURRENT_TASKS = config['concurrent_tasks']
 
-active_browsers = []  # Track active browser sessions
+MODEL_NAME = "gemini-2.0-flash-exp"
 
 def selenium_base_with_gemini():
     try:
@@ -38,7 +38,6 @@ def selenium_base_with_gemini():
         success = False  # Add a success flag
 
         with SB(uc=True, incognito=True, test=True, locale_code="en" ) as sb:
-            active_browsers.append(sb)
             try:
                 url = "https://signup.live.com/signup?lcid"
                 sb.activate_cdp_mode(url)
@@ -279,7 +278,7 @@ def analyze_responses(responses: List[str]) -> int:
     """
     try:
         # Configure Gemini
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        genai.configure(api_key=GEMINI_API_KEY)
         
         # Create the model with JSON schema
         generation_config = {
@@ -375,7 +374,7 @@ def process_audio_with_gemini(audio_path: str, instructions: str) -> str:
         generation_config = {
   "temperature": 0.6,
   "top_p": 0.95,
-  "top_k": 64,
+  "top_k": 40,
   "max_output_tokens": 8192,
   "response_mime_type": "text/plain",
     }
@@ -422,32 +421,36 @@ IMPORTANT: the differnet audios are seperated by a voice saying 'OPTION 1' or 'O
         print(traceback.format_exc())
         return f"Error: {str(e)}"
 
-# Add new main function for concurrent execution
-MAX_CONCURRENT_TASKS = 1  # Adjust based on system capabilities
-
 def main():
     """Main function to run multiple selenium instances concurrently"""
-    print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
-    
-    while True:
-        try:
-            processes = []
-            for _ in range(MAX_CONCURRENT_TASKS):
-                p = Process(target=selenium_base_with_gemini)
-                p.start()
-                processes.append(p)
-            
-            # Wait for processes
-            for p in processes:
-                p.join()
+    try:
+        print(f"{Fore.CYAN}Starting {config['concurrent_tasks']} concurrent browser sessions...{Fore.RESET}")
+        
+        while True:
+            try:
+                processes = []
+                for _ in range(config['concurrent_tasks']):
+                    p = Process(target=selenium_base_with_gemini)
+                    p.start()
+                    processes.append(p)
                 
-        except KeyboardInterrupt:
-            print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
-            for p in processes:
-                p.terminate()
-            sys.exit(0)
+                # Wait for processes
+                for p in processes:
+                    p.join()
+                    
+            except KeyboardInterrupt:
+                print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
+                for p in processes:
+                    p.terminate()
+                sys.exit(0)
+                
+    except EnvironmentError as e:
+        print(str(e))
+        sys.exit(1)
+    except Exception as e:
+        print(f"{Fore.RED}Fatal error: {str(e)}{Fore.RESET}")
+        sys.exit(1)
 
-# Update the if __name__ == "__main__" block
 if __name__ == "__main__":
     main()
     #selenium_base_with_gemini()
