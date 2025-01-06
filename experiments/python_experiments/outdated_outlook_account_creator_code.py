@@ -1,3 +1,5 @@
+# taken from >> https://github.com/exploited7/outlook-account-creator
+
 from bs4 import BeautifulSoup
 import re
 import tls_client

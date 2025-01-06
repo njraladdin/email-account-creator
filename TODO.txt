@@ -1,35 +1,28 @@
-try web unlocker (sucess, rarely)
+try web unlocker (success, rarely)
 
-try :https://github.com/seleniumbase/SeleniumBase 
+try: https://github.com/seleniumbase/SeleniumBase 
 
- (paid option ofg CheshireCaat/puppeteer-with-fingerprints with more fingerprinting options )
+(paid option of CheshireCaat/puppeteer-with-fingerprints with more fingerprinting options)
 https://fp.bablosoft.com/#pricing
 
+try that hero package: https://github.com/ulixee/hero
 
-
-try that hero package : https://github.com/ulixee/hero
-
-
-try more with tls 
-
+try more with tls
 
 ---
 
-
-give up on 2captcha, use gemini to solve the captcha using seleniumbase 
+give up on 2captcha, use gemini to solve the captcha using seleniumbase
 
 ----
 
-try audio captcha 
+try audio captcha
 
 ---
 
-ad handling mulitple challenges to visual challenge 
+add handling multiple challenges to visual challenge
 
-add saving succesfully generated accounts to txt file. alos add failed number and success percentage to the file. 
+add saving successfully generated accounts to txt file. also add failed number and success percentage to the file
 
+implement concurrency
 
-orgniaze and cleanup experiments with proper naming of attempt method 
-
-
-implmenet concurrency 
+organize and cleanup experiments with proper naming of attempt method

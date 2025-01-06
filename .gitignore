@@ -42,8 +42,11 @@ htmlcov/
 .pytest_cache/
 __pycache__/
 data/
-experiments/
+experiments/package_lock.json
+node_modules/
 screenshots/
 downloaded_files/
 
 audio/
+output/Genned.txt 
+package-lock.json

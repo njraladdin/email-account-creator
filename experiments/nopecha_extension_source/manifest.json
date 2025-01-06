@@ -1,0 +1,59 @@
+{
+   "action": {
+      "default_icon": "icon/16.png",
+      "default_popup": "popup.html",
+      "default_title": "NopeCHA: CAPTCHA Solver"
+   },
+   "background": {
+      "service_worker": "background.js",
+      "type": "module"
+   },
+   "content_scripts": [ {
+      "all_frames": true,
+      "js": [ "eventhook.js", "captcha/recaptcha.js" ],
+      "matches": [ "*://*.google.com/recaptcha/*", "*://*.recaptcha.net/recaptcha/*" ],
+      "run_at": "document_start"
+   }, {
+      "all_frames": true,
+      "js": [ "captcha/funcaptcha.js" ],
+      "matches": [ "*://*.arkoselabs.com/fc/*", "*://*.funcaptcha.com/fc/*", "*://*/fc/assets/*" ],
+      "run_at": "document_end"
+   }, {
+      "all_frames": false,
+      "js": [ "pages/setup.js" ],
+      "matches": [ "*://nopecha.com/setup" ],
+      "run_at": "document_end"
+   }, {
+      "all_frames": true,
+      "js": [ "pages/integrate.js" ],
+      "matches": [ "*://nopecha.com/integrate" ],
+      "run_at": "document_end"
+   }, {
+      "all_frames": false,
+      "js": [ "pages/funcaptcha-demo.js" ],
+      "matches": [ "*://nopecha.com/demo/funcaptcha", "*://nopecha.com/captcha/funcaptcha" ],
+      "run_at": "document_end"
+   }, {
+      "all_frames": true,
+      "js": [ "captcha/awscaptcha.js", "captcha/geetest.js", "captcha/lemincaptcha.js", "captcha/textcaptcha.js", "captcha/perimeterx.js" ],
+      "match_about_blank": true,
+      "matches": [ "\u003Call_urls>" ],
+      "run_at": "document_end"
+   } ],
+   "description": "AI Solver for reCAPTCHA, FunCAPTCHA, and all CAPTCHA.",
+   "host_permissions": [ "\u003Call_urls>" ],
+   "icons": {
+      "128": "icon/128.png",
+      "16": "icon/16.png",
+      "32": "icon/32.png",
+      "48": "icon/48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlWiyXSK0GK0nDwOfOJ2zUvRv99E2XU6LnR67zKE5RjM2icff7Cwmo6nR5i+4UukShIyEaDdQsbC+vyTpDeaJMn+bNphPYjQxGY6spIk3KV1h71Jj0dSUOYUwGrViKg3LnC4LKtENYOsbIxTmMw8JG4oH1hU1tY4KlnSzcqiwTaDLTP0X7MVdDK0WPOyypNlkL7v1HWMjPZa32EudqcrWub/EMpMFuSugTyIu8dHaAQhW13RkU77BiMRoZfZYxbcED48YPmZS8qi3KOrymjOTWCJeDMjwy/MLCqrwhjoG1Y5jDXHFbxNUPxEJYw9mxxPTN+asraML9tywlLuzZluHwwIDAQAB",
+   "manifest_version": 3,
+   "minimum_chrome_version": "100.0",
+   "name": "NopeCHA: CAPTCHA Solver",
+   "permissions": [ "declarativeNetRequest", "storage", "scripting" ],
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "0.4.13",
+   "version_name": "v0.4.13"
+}

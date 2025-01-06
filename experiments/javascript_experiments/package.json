@@ -1,0 +1,13 @@
+{
+  "dependencies": {
+    "@ulixee/hero": "^2.0.0-alpha.31",
+    "axios": "^1.7.9",
+    "colors": "^1.4.0",
+    "dotenv": "^16.4.7",
+    "puppeteer": "^23.11.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer-with-fingerprints": "^2.0.5",
+    "win-screen-resolution": "^4.0.0"
+  }
+}
