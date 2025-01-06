@@ -1,5 +1,6 @@
 from seleniumbase import SB
 import time
+import random
 import json
 import os
 from dotenv import load_dotenv
@@ -18,14 +19,16 @@ from utils import (
     generate_account_info,
     update_stats,
     save_account,
+    get_success_percentage,
     ATTEMPTS,
     GENNED
 )
+import sys
+from multiprocessing import Process
 
 load_dotenv()
 
 MODEL_NAME = "gemini-2.0-flash-exp"
-MAX_CONCURRENT_TASKS = 1  # Adjust this number based on your system's capabilities
 
 def add_solution_text(image_path, solution_number):
     """Add solution text to a screenshot with black background at bottom"""
@@ -71,12 +74,12 @@ def add_solution_text(image_path, solution_number):
 
 def selenium_base_with_gemini():
     try:
-        # Use the utils module to generate account info
         account_info = generate_account_info()
+        success = False  # Add success flag
 
         print('Generated account details (for manual input):')
         print(json.dumps(account_info, indent=2))
-        # docs > https://seleniumbase.io/help_docs/uc_mode/#here-are-the-seleniumbase-uc-mode-methods-uc-uctrue
+
         with SB(uc=True, incognito=True, test=True, locale_code="en") as sb:
             try:
                 url = "https://signup.live.com/signup?lcid"
@@ -105,168 +108,150 @@ def selenium_base_with_gemini():
                 sb.cdp.type("#BirthYear", account_info['birth_year'])
                 sb.cdp.click('input[type="submit"], button[type="submit"]')
 
-                # Add debug logging and iframe handling for captcha
                 print("Waiting for captcha iframe to load...")
-                sb.sleep(5)  # Wait for captcha to fully load
-                
-                # Create screenshots directory if it doesn't exist
+                sb.sleep(5)
+
                 if not os.path.exists('screenshots'):
                     os.makedirs('screenshots')
-                screenshot_paths = []  # Initialize array to track screenshots
-                
-                # Take single screenshot after captcha loads
+
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 print("Taking screenshot of captcha page...")
                 sb.save_screenshot(f"screenshots/captcha_{timestamp}.png")
-                try:
-                    print("Attempting to switch to enforcement frame...")
-                    with sb.frame_switch("#enforcementFrame"):
-                        print("Successfully switched to enforcement frame")
+
+                # Switch to enforcement frame
+                print("Attempting to switch to enforcement frame...")
+                with sb.frame_switch("#enforcementFrame"):
+                    print("Successfully switched to enforcement frame")
+                    
+                    print("Attempting to switch to arkose iframe...")
+                    with sb.frame_switch("#arkose > div > iframe"):
+                        print("Successfully switched to arkose iframe")
                         
-                        print("Attempting to switch to arkose iframe...")
-                        with sb.frame_switch("#arkose > div > iframe"):
-                            print("Successfully switched to arkose iframe")
+                        print("Attempting to switch to game-core-frame...")
+                        with sb.frame_switch("#game-core-frame"):
+                            print("Successfully switched to game-core-frame")
                             
-                            # Switch to game-core-frame
-                            print("Attempting to switch to game-core-frame...")
-                            with sb.frame_switch("#game-core-frame"):
-                                print("Successfully switched to game-core-frame")
+                            while True:
+                                next_button = sb.find_element('[data-theme="home.verifyButton"]')
+                                if not next_button:
+                                    raise ValueError("Next button not found")
+
+                                print("Found Next button, clicking...")
+                                next_button.click()
+                                sb.sleep(2)
+
+                                sb.cdp.evaluate("window.devicePixelRatio = 2.4")
+                                sb.cdp.evaluate("document.body.style.zoom = '240%'")
+
+                                img_element = sb.find_element('img[aria-live="assertive"]')
+                                if not img_element:
+                                    raise ValueError("Image element not found")
+
+                                aria_label = img_element.get_attribute('aria-label')
+                                total_images = int(aria_label.split('of')[1].strip().rstrip('.'))
+                                print(f"Total number of images detected: {total_images}")
                                 
-                                # Start a loop to handle multiple challenges
-                                while True:
-                                    # Find and click the Next button using data-theme attribute
-                                    print("Looking for Next button...")
-                                    next_button = sb.find_element('[data-theme="home.verifyButton"]')
-                                    if next_button:
-                                        print("Found Next button, clicking...")
-                                        next_button.click()
-                                        sb.sleep(2)  # Wait for images to load
+                                screenshot_paths = []
+                                
+                                # Capture all images
+                                for i in range(total_images):
+                                    current_img = sb.find_element('.match-game.box.screen > div > h2')
+                                    if not current_img:
+                                        raise ValueError(f"Image {i+1} not found")
 
-                                        sb.cdp.evaluate("window.devicePixelRatio = 2.4")
-                                        sb.cdp.evaluate("document.body.style.zoom = '240%'")
+                                    sb.execute_script("arguments[0].scrollIntoView(true);", current_img)
+                                    sb.sleep(1)
+                                    
+                                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                    screenshot_path = f"screenshots/session_{random.randint(1000, 9999)}_captcha_{timestamp}.png"
+                                    sb.save_screenshot(screenshot_path)
+                                    add_solution_text(screenshot_path, i+1)
+                                    screenshot_paths.append(screenshot_path)
+                                    
+                                    if i < total_images - 1:
+                                        next_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
+                                        if not next_image_button:
+                                            raise ValueError("Next image button not found")
+                                        print(f"Clicking to see image {i+2} of {total_images}...")
+                                        next_image_button.click()
+                                        sb.sleep(1)
 
-                                        # Get total number of images from aria-label
-                                        img_element = sb.find_element('img[aria-live="assertive"]')
-                                        aria_label = img_element.get_attribute('aria-label')
-                                        total_images = int(aria_label.split('of')[1].strip().rstrip('.'))
-                                        print(f"Total number of images detected: {total_images}")
-                                        
-                                        screenshot_paths = []  # Reset screenshot paths for new challenge
-                                        
-                                        # Capture all images
-                                        for i in range(total_images):
-                                            # Find current image and scroll it into view
-                                            current_img = sb.find_element('.match-game.box.screen > div > h2')
-                                            sb.execute_script("arguments[0].scrollIntoView(true);", current_img)
-                                            sb.sleep(1)  # Wait for scroll to complete
-                                            
-                                            # Take screenshot and add solution text
-                                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                            screenshot_path = f"screenshots/session_{random.randint(1000, 9999)}_captcha_{timestamp}.png"
-                                            sb.save_screenshot(screenshot_path)
-                                            add_solution_text(screenshot_path, i+1)
-                                            screenshot_paths.append(screenshot_path)  # Track the screenshot path
-                                            
-                                            # Click next if not the last image
-                                            if i < total_images - 1:
-                                                next_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
-                                                if next_image_button:
-                                                    print(f"Clicking to see image {i+2} of {total_images}...")
-                                                    next_image_button.click()
-                                                    sb.sleep(1)  # Wait for next image to load
-                                                else:
-                                                    print("Next image button not found")
-                                                    break
+                                if not screenshot_paths:
+                                    raise ValueError("No screenshots captured")
 
-                                        # Process images with Gemini - fixed indentation
-                                        if screenshot_paths:
-                                            try:
-                                                gemini_response = process_images_with_gemini(screenshot_paths)
-                                                print("Gemini Analysis Result:")
-                                                print(gemini_response)
-                                                
-                                                solution_number = analyze_responses([gemini_response])
-                                                print(f"Determined solution number: {solution_number}")
-                                                
-                                                if solution_number > 0:
-                                                    # Navigate to correct image and submit
-                                                    # Go back to first image
-                                                    first_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
-                                                    if first_image_button:
-                                                        first_image_button.click()
-                                                        sb.sleep(1)
-                                                    
-                                                    # Click right button (solution_number - 1) times to reach the correct image
-                                                    for _ in range(solution_number - 1):
-                                                        next_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
-                                                        if next_image_button:
-                                                            next_image_button.click()
-                                                            sb.sleep(0.5)
-                                                    
-                                                    # Find and click the submit button
-                                                    print("Looking for submit button...")
-                                                    submit_button = sb.find_element("button")
-                                                    if submit_button:
-                                                        print("Found submit button, clicking...")
-                                                        submit_button.click()
-                                                        sb.sleep(2)  # Wait for submission
-                                                        
-                                                        # Check if we have another challenge
-                                                        try:
-                                                            new_next_button = sb.find_element('[data-theme="home.verifyButton"]')
-                                                            if new_next_button:
-                                                                print("New challenge detected, continuing...")
-                                                                continue
-                                                            else:
-                                                                print("No new challenge detected, captcha completed!")
-                                                                # Take a screenshot of the completed state
-                                                                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                                                                completion_screenshot = f"screenshots/captcha_completed_{timestamp}.png"
-                                                                sb.save_screenshot(completion_screenshot)
-                                                                print(f"Saved completion screenshot to: {completion_screenshot}")
-                                                                break
-                                                        except Exception as e:
-                                                            print("No new challenge found, captcha completed!")
-                                                            break
-                                                    else:
-                                                        print("Submit button not found")
-                                                        break
-                                                else:
-                                                    print("Invalid solution number received from analysis")
-                                                    break
-                                            except Exception as e:
-                                                print(f"Error processing images with Gemini: {str(e)}")
-                                                import traceback
-                                                print(traceback.format_exc())
-                                                break
-                                    else:
-                                        print("Next button not found")
-                                        break
+                                gemini_response = process_images_with_gemini(screenshot_paths)
+                                print("Gemini Analysis Result:")
+                                print(gemini_response)
+                                
+                                solution_number = analyze_responses([gemini_response])
+                                print(f"Determined solution number: {solution_number}")
+                                
+                                if solution_number <= 0:
+                                    raise ValueError("Invalid solution number received")
 
-                except Exception as e:
-                    print(f"Error while handling iframes: {str(e)}")
-                    print("Detailed error:")
-                    import traceback
-                    print(traceback.format_exc())
+                                # Navigate to first image
+                                first_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
+                                if first_image_button:
+                                    first_image_button.click()
+                                    sb.sleep(1)
+                                
+                                # Navigate to solution image
+                                for _ in range(solution_number - 1):
+                                    next_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
+                                    if not next_image_button:
+                                        raise ValueError("Navigation button not found")
+                                    next_image_button.click()
+                                    sb.sleep(0.5)
+                                
+                                submit_button = sb.find_element("button")
+                                if not submit_button:
+                                    raise ValueError("Submit button not found")
 
-                # print("Continuing with long wait...")
-                sb.sleep(31536000)  
+                                print("Found submit button, clicking...")
+                                submit_button.click()
+                                sb.sleep(2)
 
-                
+                                try:
+                                    new_next_button = sb.find_element('[data-theme="home.verifyButton"]')
+                                    if new_next_button:
+                                        print("New challenge detected, continuing...")
+                                        continue
+                                except Exception:
+                                    print("No new challenge detected, captcha completed!")
+                                    
+                                    # Switch back to main content and handle post-captcha navigation
+                                    sb.switch_to_default_content()
+                                    print("Switched back to main content")
+                                    
+                                    print("Waiting for navigation after captcha...")
+                                    sb.wait_for_ready_state_complete()
+                                    
+                                    print("Waiting for next page element...")
+                                    sb.wait_for_element_present('#id__0', timeout=10)
+                                    print("Found next page element, clicking...")
+                                    sb.cdp.click('#id__0')
+                                    print("Waiting for page load...")
+                                    sb.sleep(5)
+                                    page_title = sb.cdp.get_title()
+                                    print(f"Final page title: {page_title}")
+                                    success = True
+                                    break
+
+                # Handle success case
+                if success:
+                    update_stats(success=True)
+                    save_account(account_info['email'], account_info['password'])
+                    print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+                    return {"status": "success", "email": account_info['email'], "password": account_info['password']}
+                else:
+                    raise ValueError("Account creation process did not complete successfully")
+
             except Exception as e:
-                print(f'Error during browser setup: {str(e)}')
-                # Print more detailed error information
+                print(f'Error during browser automation: {str(e)}')
                 import traceback
                 print(traceback.format_exc())
+                raise  # Re-raise to be caught by outer try block
 
-            # After successful completion
-            update_stats(success=True)
-            save_account(account_info['email'], account_info['password'])
-            print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
-            
-            return {"status": "success", "email": account_info['email'], "password": account_info['password']}
-        
-    
     except Exception as e:
         update_stats(success=False)
         success_rate = get_success_percentage()
@@ -482,15 +467,9 @@ def test_gemini_with_latest_screenshots():
         import traceback
         print(traceback.format_exc())
 
-def get_timestamp():
-    """Get current timestamp in HH:MM:SS format"""
-    return datetime.now().strftime("%H:%M:%S")
 
-def get_success_percentage():
-    """Calculate success percentage"""
-    if ATTEMPTS == 0:
-        return 0
-    return (GENNED / ATTEMPTS) * 100
+
+MAX_CONCURRENT_TASKS = 1  # Adjust this number based on your system's capabilities
 
 def main():
     """Main function to run multiple selenium instances concurrently"""
@@ -498,23 +477,21 @@ def main():
     
     while True:
         try:
-            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TASKS) as executor:
-                futures = [executor.submit(selenium_base_with_gemini) for _ in range(MAX_CONCURRENT_TASKS)]
+            processes = []
+            for _ in range(MAX_CONCURRENT_TASKS):
+                p = Process(target=selenium_base_with_gemini)
+                p.start()
+                processes.append(p)
+            
+            # Wait for processes
+            for p in processes:
+                p.join()
                 
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        result = future.result(timeout=600)  # 10 minute timeout per task
-                        if result["status"] == "success":
-                            print(f"{Fore.GREEN}Task completed successfully!{Fore.RESET}")
-                        else:
-                            print(f"{Fore.RED}Task failed: {result['message']}{Fore.RESET}")
-                    except Exception as e:
-                        print(f"{Fore.RED}Task failed with error: {str(e)}{Fore.RESET}")
-                        continue
-        
         except KeyboardInterrupt:
-            print(f"\n{Fore.YELLOW}Received keyboard interrupt. Shutting down gracefully...{Fore.RESET}")
-            break
+            print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
+            for p in processes:
+                p.terminate()
+            sys.exit(0)
         except Exception as e:
             print(f"{Fore.RED}Main loop error: {str(e)}{Fore.RESET}")
             continue

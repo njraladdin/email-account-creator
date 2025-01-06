@@ -17,24 +17,28 @@ from utils import (
     generate_account_info,
     update_stats,
     save_account,
+    get_success_percentage,
     ATTEMPTS,
     GENNED
 )
+import signal
+import sys
+from multiprocessing import Process
 
 load_dotenv()
 
-MODEL_NAME = "gemini-2.0-flash-exp"
-MAX_CONCURRENT_TASKS = 1  # Adjust based on system capabilities
+MODEL_NAME = "gemini-exp-1206"
+
+active_browsers = []  # Track active browser sessions
 
 def selenium_base_with_gemini():
     try:
         # Use the utils module to generate account info
         account_info = generate_account_info()
+        success = False  # Add a success flag
 
-        print('Generated account details (for manual input):')
-        print(json.dumps(account_info, indent=2))
-        # docs > https://seleniumbase.io/help_docs/uc_mode/#here-are-the-seleniumbase-uc-mode-methods-uc-uctrue
         with SB(uc=True, incognito=True, test=True, locale_code="en" ) as sb:
+            active_browsers.append(sb)
             try:
                 url = "https://signup.live.com/signup?lcid"
                 sb.activate_cdp_mode(url)
@@ -168,73 +172,82 @@ def selenium_base_with_gemini():
                                                     option_number = analyze_responses([gemini_response])
                                                     print(f"Extracted option number: {option_number}")
                                                     
-                                                    if option_number > 0:
-                                                        # Find and fill the answer input
-                                                        answer_input = sb.find_element('#answer-input')
-                                                        if answer_input:
-                                                            print(f"Inputting answer: {option_number}")
-                                                            answer_input.clear()
-                                                            answer_input.send_keys(str(option_number))
-                                                            sb.sleep(1)  # Short wait after input
+                                                    if option_number <= 0:
+                                                        raise ValueError("Invalid option number received from analysis")
+                                                        
+                                                    # Find and fill the answer input
+                                                    answer_input = sb.find_element('#answer-input')
+                                                    if answer_input:
+                                                        print(f"Inputting answer: {option_number}")
+                                                        answer_input.clear()
+                                                        answer_input.send_keys(str(option_number))
+                                                        sb.sleep(1)  # Short wait after input
+                                                        
+                                                        # Find and click submit button
+                                                        submit_button = sb.find_element('button[type="submit"]')
+                                                        if submit_button:
+                                                            print("Found submit button, clicking...")
+                                                            submit_button.click()
                                                             
-                                                            # Find and click submit button
-                                                            submit_button = sb.find_element('button[type="submit"]')
-                                                            if submit_button:
-                                                                print("Found submit button, clicking...")
-                                                                submit_button.click()
+                                                            # Wait and check for new audio challenge
+                                                            sb.sleep(2)
+                                                            new_audio_url = sb.execute_script("return window.lastAudioUrl;")
+                                                            if not new_audio_url:
+                                                                print("No new audio challenge detected, captcha completed!")
+                                                                sb.sleep(5)
+                                                                # Switch back to default content
+                                                                sb.switch_to_default_content()
+                                                                print("Switched back to main content")
                                                                 
-                                                                # Wait and check for new audio challenge
-                                                                sb.sleep(2)
-                                                                new_audio_url = sb.execute_script("return window.lastAudioUrl;")
-                                                                if not new_audio_url:
-                                                                    print("No new audio challenge detected, captcha completed!")
-                                                                    break
-                                                                else:
-                                                                    print("New audio challenge detected, continuing...")
-                                                                    continue
-                                                            else:
-                                                                print("Submit button not found")
+                                                                # Wait for navigation/redirect after captcha
+                                                                print("Waiting for navigation after captcha...")
+                                                                sb.wait_for_ready_state_complete()
+                                                                
+                                                                # Now wait for and click the next element
+                                                                print("Waiting for next page element...")
+                                                                sb.wait_for_element_present('#id__0', timeout=10)
+                                                                print("Found next page element, clicking...")
+                                                                sb.cdp.click('#id__0')
+                                                                print("Waiting for page load...")
+                                                                sb.sleep(5)
+                                                                page_title = sb.cdp.get_title()
+                                                                print(f"Final page title: {page_title}")
+                                                                success = True  # Set success flag only after completing everything
                                                                 break
+                                                            else:
+                                                                print("New audio challenge detected, continuing...")
+                                                                continue
                                                         else:
-                                                            print("Answer input field not found")
-                                                            break
+                                                            raise ValueError("Submit button not found")
                                                     else:
-                                                        print("Invalid option number received from analysis")
-                                                        break
-                                                else:
-                                                    print("Failed to download audio file")
-                                                    break
+                                                        raise ValueError("Answer input field not found")
                                             finally:
                                                 loop.close()
-                                        else:
-                                            print("No audio URL captured")
-                                            break
-                                sb.sleep(110000)
-
-
+                                            
+                                            if not audio_path:
+                                                raise ValueError("Failed to download audio file")
                 except Exception as e:
                     print(f"Error while handling iframes: {str(e)}")
                     print("Detailed error:")
                     import traceback
                     print(traceback.format_exc())
+                    raise  # Re-raise to be caught by outer try block
 
-                # print("Continuing with long wait...")
-                sb.sleep(31536000)  
+                # Move success handling inside the try block
+                if success:
+                    update_stats(success=True)
+                    save_account(account_info['email'], account_info['password'])
+                    print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+                    return {"status": "success", "email": account_info['email'], "password": account_info['password']}
+                else:
+                    raise ValueError("Account creation process did not complete successfully")
 
-                
             except Exception as e:
-                print(f'Error during browser setup: {str(e)}')
-                # Print more detailed error information
+                print(f'Error during browser automation: {str(e)}')
                 import traceback
                 print(traceback.format_exc())
+                raise  # Re-raise the exception to be caught by outer try block
 
-        # After successful completion
-        update_stats(success=True)
-        save_account(account_info['email'], account_info['password'])
-        print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
-        
-        return {"status": "success", "email": account_info['email'], "password": account_info['password']}
-        
     except Exception as e:
         update_stats(success=False)
         success_rate = get_success_percentage()
@@ -360,16 +373,16 @@ def process_audio_with_gemini(audio_path: str, instructions: str) -> str:
         
         # Configure and create the model
         generation_config = {
-    "temperature": 1,
-    "top_p": 0.95,
-    "top_k": 64,
-    "max_output_tokens": 8192,
-    "response_mime_type": "text/plain",
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 64,
+  "max_output_tokens": 8192,
+  "response_mime_type": "text/plain",
     }
 
         print("Creating Gemini model...")
         model = genai.GenerativeModel(
-            model_name="gemini-exp-1206",
+            model_name=MODEL_NAME,
             generation_config=generation_config,
         )
 
@@ -380,7 +393,10 @@ def process_audio_with_gemini(audio_path: str, instructions: str) -> str:
 
 it's intentionally hidden and tried to be covered by other sounds, 
 so try to not be tricked easily. it doesn't have to be exactly it, 
-but something very similar (it's obfuscated on purpose) it can be quite subtle as well and very short, so pay attention to that. 
+but something very similar (it's obfuscated on purpose) it can be quite subtle as well and very short, so pay attention to that. and all sorts of tricks.
+listen to the audio multiple times before answering.
+
+IMPORTANT: the differnet audios are seperated by a voice saying 'OPTION 1' or 'OPTION 2' or 'OPTION 3' so make sure that doesnt confuse you in the audi ochallenge if the audio was related to people speaking. 
         """
 
         print("Starting chat session with Gemini...")
@@ -407,32 +423,29 @@ but something very similar (it's obfuscated on purpose) it can be quite subtle a
         return f"Error: {str(e)}"
 
 # Add new main function for concurrent execution
+MAX_CONCURRENT_TASKS = 1  # Adjust based on system capabilities
+
 def main():
     """Main function to run multiple selenium instances concurrently"""
     print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
     
     while True:
         try:
-            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TASKS) as executor:
-                futures = [executor.submit(selenium_base_with_gemini) for _ in range(MAX_CONCURRENT_TASKS)]
+            processes = []
+            for _ in range(MAX_CONCURRENT_TASKS):
+                p = Process(target=selenium_base_with_gemini)
+                p.start()
+                processes.append(p)
+            
+            # Wait for processes
+            for p in processes:
+                p.join()
                 
-                for future in concurrent.futures.as_completed(futures):
-                    try:
-                        result = future.result(timeout=600)  # 10 minute timeout per task
-                        if result["status"] == "success":
-                            print(f"{Fore.GREEN}Task completed successfully!{Fore.RESET}")
-                        else:
-                            print(f"{Fore.RED}Task failed: {result['message']}{Fore.RESET}")
-                    except Exception as e:
-                        print(f"{Fore.RED}Task failed with error: {str(e)}{Fore.RESET}")
-                        continue
-        
         except KeyboardInterrupt:
-            print(f"\n{Fore.YELLOW}Received keyboard interrupt. Shutting down gracefully...{Fore.RESET}")
-            break
-        except Exception as e:
-            print(f"{Fore.RED}Main loop error: {str(e)}{Fore.RESET}")
-            continue
+            print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
+            for p in processes:
+                p.terminate()
+            sys.exit(0)
 
 # Update the if __name__ == "__main__" block
 if __name__ == "__main__":
