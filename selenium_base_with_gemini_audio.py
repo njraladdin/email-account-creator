@@ -1,7 +1,6 @@
 from seleniumbase import SB
 import time
 import json
-import random
 import os
 from dotenv import load_dotenv
 from datetime import datetime
@@ -11,264 +10,237 @@ import asyncio
 import aiohttp
 from concurrent.futures import ThreadPoolExecutor
 from google.ai.generativelanguage_v1beta.types import content
+from colorama import init, Fore
+import concurrent.futures
+import threading
+from utils import (
+    generate_account_info,
+    update_stats,
+    save_account,
+    ATTEMPTS,
+    GENNED
+)
+
 load_dotenv()
 
 MODEL_NAME = "gemini-2.0-flash-exp"
-
-def generate_personal_info():
-    """Generate random personal information"""
-    def generate_name(length):
-        consonants = 'bcdfghjklmnpqrstvwxyz'
-        vowels = 'aeiou'
-        name = ''
-        for i in range(length):
-            name += random.choice(consonants if i % 2 == 0 else vowels)
-        return name.capitalize()
-    
-    random_first_name = generate_name(random.randint(5, 7))
-    random_last_name = generate_name(random.randint(5, 7))
-    username = f"{random_first_name.lower()}{random_last_name.lower()}{random.randint(0, 9999)}"
-    birth_day = str(random.randint(1, 28))
-    birth_month = str(random.randint(1, 12))
-    birth_year = str(random.randint(1990, 1999))
-    
-    return {
-        'username': username,
-        'first_name': random_first_name,
-        'last_name': random_last_name,
-        'birth_day': birth_day,
-        'birth_month': birth_month,
-        'birth_year': birth_year
-    }
-
-def generate_password():
-    """Generate random password"""
-    def generate_word(length):
-        consonants = 'bcdfghjklmnpqrstvwxyz'
-        vowels = 'aeiou'
-        word = ''
-        for i in range(length):
-            word += random.choice(consonants if i % 2 == 0 else vowels)
-        return word
-    
-    first_word = generate_word(random.randint(5, 7))
-    second_word = generate_word(random.randint(5, 7))
-    return f"{first_word}{second_word}{random.randint(0, 9999)}!"
-
-
+MAX_CONCURRENT_TASKS = 1  # Adjust based on system capabilities
 
 def selenium_base_with_gemini():
-    # Generate account info first
-    personal_info = generate_personal_info()
-    password = generate_password()
+    try:
+        # Use the utils module to generate account info
+        account_info = generate_account_info()
 
-    account_info = {
-        'email': f"{personal_info['username']}@outlook.com",
-        'password': password,
-        'first_name': personal_info['first_name'],
-        'last_name': personal_info['last_name'],
-        'birth_day': personal_info['birth_day'],
-        'birth_month': personal_info['birth_month'], 
-        'birth_year': personal_info['birth_year'],
-        'date_created': time.strftime('%Y-%m-%dT%H:%M:%SZ')
-    }
-
-    print('Generated account details (for manual input):')
-    print(json.dumps(account_info, indent=2))
-    # docs > https://seleniumbase.io/help_docs/uc_mode/#here-are-the-seleniumbase-uc-mode-methods-uc-uctrue
-    with SB(uc=True, incognito=True, test=True, locale_code="en" ) as sb:
-        try:
-            url = "https://signup.live.com/signup?lcid"
-            sb.activate_cdp_mode(url)
-            
-            print("Starting signup process...")
-            sb.cdp.click("#usernameInput")
-            sb.cdp.type("#usernameInput", personal_info['username']+'@hotmail.com')
-            sb.cdp.click("#nextButton")
-
-            sb.cdp.click("#Password")
-            sb.cdp.type("#Password", password)
-            sb.cdp.click('input[type="submit"], button[type="submit"]')
-
-            sb.cdp.click("#firstNameInput")
-            sb.cdp.type("#firstNameInput", personal_info['first_name'])
-            sb.cdp.click("#lastNameInput")
-            sb.cdp.type("#lastNameInput", personal_info['last_name'])
-            sb.cdp.click('input[type="submit"], button[type="submit"]')
-
-            sb.cdp.click("#BirthDay")
-            sb.cdp.type("#BirthDay", '3')
-            sb.cdp.click("#BirthMonth")
-            sb.cdp.type("#BirthMonth", 'd')
-            sb.cdp.click("#BirthYear")
-            sb.cdp.type("#BirthYear", personal_info['birth_year'])
-            sb.cdp.click('input[type="submit"], button[type="submit"]')
-
-            # Add debug logging and iframe handling for captcha
-            print("Waiting for captcha iframe to load...")
-            sb.sleep(5)  # Wait for captcha to fully load
-            
-            # Create screenshots directory if it doesn't exist
-            if not os.path.exists('screenshots'):
-                os.makedirs('screenshots')
-            screenshot_paths = []  # Initialize array to track screenshots
-                
-            # Take single screenshot after captcha loads
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print("Taking screenshot of captcha page...")
-            sb.save_screenshot(f"screenshots/captcha_{timestamp}.png")
+        print('Generated account details (for manual input):')
+        print(json.dumps(account_info, indent=2))
+        # docs > https://seleniumbase.io/help_docs/uc_mode/#here-are-the-seleniumbase-uc-mode-methods-uc-uctrue
+        with SB(uc=True, incognito=True, test=True, locale_code="en" ) as sb:
             try:
-                print("Attempting to switch to enforcement frame...")
-                with sb.frame_switch("#enforcementFrame"):
-                    print("Successfully switched to enforcement frame")
-                    
-                    print("Attempting to switch to arkose iframe...")
-                    with sb.frame_switch("#arkose > div > iframe"):
-                        print("Successfully switched to arkose iframe")
-                        
-                        # Switch to game-core-frame
-                        print("Attempting to switch to game-core-frame...")
-                        with sb.frame_switch("#game-core-frame"):
-                            print("Successfully switched to game-core-frame")
-                            
-                            # Get the instructions text
-                            
-                            # This is all we need now - the JavaScript interceptors
-                            monitor_script = """
-                            // Store original fetch
-                            const originalFetch = window.fetch;
-                            window.fetch = async (...args) => {
-                                const url = args[0];
-                                console.log('Intercepted fetch request:', url);
-                                if(url.includes('audio')) {
-                                    window.lastAudioUrl = url;
-                                    console.log('Found audio URL:', url);
-                                }
-                                return originalFetch.apply(window, args);
-                            };
+                url = "https://signup.live.com/signup?lcid"
+                sb.activate_cdp_mode(url)
+                
+                print("Starting signup process...")
+                sb.cdp.click("#usernameInput")
+                sb.cdp.type("#usernameInput", account_info['email'])
+                sb.cdp.click("#nextButton")
 
-                            // Store original XHR
-                            const originalXHR = window.XMLHttpRequest;
-                            window.XMLHttpRequest = function() {
-                                const xhr = new originalXHR();
-                                const originalOpen = xhr.open;
-                                xhr.open = function(...args) {
-                                    const url = args[1];
-                                    console.log('Intercepted XHR request:', url);
+                sb.cdp.click("#Password")
+                sb.cdp.type("#Password", account_info['password'])
+                sb.cdp.click('input[type="submit"], button[type="submit"]')
+
+                sb.cdp.click("#firstNameInput")
+                sb.cdp.type("#firstNameInput", account_info['first_name'])
+                sb.cdp.click("#lastNameInput")
+                sb.cdp.type("#lastNameInput", account_info['last_name'])
+                sb.cdp.click('input[type="submit"], button[type="submit"]')
+
+                sb.cdp.click("#BirthDay")
+                sb.cdp.type("#BirthDay", account_info['birth_day'])
+                sb.cdp.click("#BirthMonth")
+                sb.cdp.type("#BirthMonth", account_info['birth_month'])
+                sb.cdp.click("#BirthYear")
+                sb.cdp.type("#BirthYear", account_info['birth_year'])
+                sb.cdp.click('input[type="submit"], button[type="submit"]')
+
+                # Add debug logging and iframe handling for captcha
+                print("Waiting for captcha iframe to load...")
+                sb.sleep(5)  # Wait for captcha to fully load
+                
+                # Create screenshots directory if it doesn't exist
+                if not os.path.exists('screenshots'):
+                    os.makedirs('screenshots')
+                screenshot_paths = []  # Initialize array to track screenshots
+                
+                # Take single screenshot after captcha loads
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                print("Taking screenshot of captcha page...")
+                sb.save_screenshot(f"screenshots/captcha_{timestamp}.png")
+                try:
+                    print("Attempting to switch to enforcement frame...")
+                    with sb.frame_switch("#enforcementFrame"):
+                        print("Successfully switched to enforcement frame")
+                        
+                        print("Attempting to switch to arkose iframe...")
+                        with sb.frame_switch("#arkose > div > iframe"):
+                            print("Successfully switched to arkose iframe")
+                            
+                            # Switch to game-core-frame
+                            print("Attempting to switch to game-core-frame...")
+                            with sb.frame_switch("#game-core-frame"):
+                                print("Successfully switched to game-core-frame")
+                                
+                                # Get the instructions text
+                                
+                                # This is all we need now - the JavaScript interceptors
+                                monitor_script = """
+                                // Store original fetch
+                                const originalFetch = window.fetch;
+                                window.fetch = async (...args) => {
+                                    const url = args[0];
+                                    console.log('Intercepted fetch request:', url);
                                     if(url.includes('audio')) {
                                         window.lastAudioUrl = url;
                                         console.log('Found audio URL:', url);
                                     }
-                                    return originalOpen.apply(xhr, args);
+                                    return originalFetch.apply(window, args);
                                 };
-                                return xhr;
-                            };
-                            """
-                            sb.execute_script(monitor_script)
-                            
-                            # Find and click the Audio button once to start audio challenges
-                            print("Looking for Audio challenge button...")
-                            audio_button = sb.find_element('[aria-label="Audio"]')
-                            if audio_button:
-                                print("Found Audio button, clicking to start audio challenges...")
-                                audio_button.click()
-                                sb.sleep(2)  # Wait for first audio challenge to load
+
+                                // Store original XHR
+                                const originalXHR = window.XMLHttpRequest;
+                                window.XMLHttpRequest = function() {
+                                    const xhr = new originalXHR();
+                                    const originalOpen = xhr.open;
+                                    xhr.open = function(...args) {
+                                        const url = args[1];
+                                        console.log('Intercepted XHR request:', url);
+                                        if(url.includes('audio')) {
+                                            window.lastAudioUrl = url;
+                                            console.log('Found audio URL:', url);
+                                        }
+                                        return originalOpen.apply(xhr, args);
+                                    };
+                                    return xhr;
+                                };
+                                """
+                                sb.execute_script(monitor_script)
                                 
-                                # Loop to handle multiple audio challenges
-                                while True:
-                                    instructions = sb.find_element('#instructions').text
-                                    print(f"Captcha Instructions: {instructions}")
+                                # Find and click the Audio button once to start audio challenges
+                                print("Looking for Audio challenge button...")
+                                audio_button = sb.find_element('[aria-label="Audio"]')
+                                if audio_button:
+                                    print("Found Audio button, clicking to start audio challenges...")
+                                    audio_button.click()
+                                    sb.sleep(2)  # Wait for first audio challenge to load
                                     
-                                    # Check if we captured the audio URL
-                                    audio_url = sb.execute_script("return window.lastAudioUrl;")
-                                    if audio_url:
-                                        print(f"Captured audio URL: {audio_url}")
+                                    # Loop to handle multiple audio challenges
+                                    while True:
+                                        instructions = sb.find_element('#instructions').text
+                                        print(f"Captcha Instructions: {instructions}")
                                         
-                                        # Create event loop for async operations
-                                        loop = asyncio.new_event_loop()
-                                        asyncio.set_event_loop(loop)
-                                        try:
-                                            # Download the audio file
-                                            audio_path = loop.run_until_complete(download_audio_file(audio_url))
-                                            if audio_path:
-                                                # Clear the last audio URL after successful download
-                                                sb.execute_script("window.lastAudioUrl = null;")
-                                                
-                                                # Click the play button to simulate human behavior
-                                                play_button = sb.find_element('[aria-describedby="instructions"]')
-                                                if play_button:
-                                                    print("Clicking play button...")
-                                                    play_button.click()
-                                                    sb.sleep(1)  # Short wait after clicking play
-                                                
-                                                # Process with Gemini and submit answer
-                                                gemini_response = process_audio_with_gemini(audio_path, instructions)
-                                                print("Gemini Audio Analysis Result:")
-                                                print(gemini_response)
-                                                
-                                                # Analyze the response to get the option number
-                                                option_number = analyze_responses([gemini_response])
-                                                print(f"Extracted option number: {option_number}")
-                                                
-                                                if option_number > 0:
-                                                    # Find and fill the answer input
-                                                    answer_input = sb.find_element('#answer-input')
-                                                    if answer_input:
-                                                        print(f"Inputting answer: {option_number}")
-                                                        answer_input.clear()
-                                                        answer_input.send_keys(str(option_number))
-                                                        sb.sleep(1)  # Short wait after input
-                                                        
-                                                        # Find and click submit button
-                                                        submit_button = sb.find_element('button[type="submit"]')
-                                                        if submit_button:
-                                                            print("Found submit button, clicking...")
-                                                            submit_button.click()
+                                        # Check if we captured the audio URL
+                                        audio_url = sb.execute_script("return window.lastAudioUrl;")
+                                        if audio_url:
+                                            print(f"Captured audio URL: {audio_url}")
+                                            
+                                            # Create event loop for async operations
+                                            loop = asyncio.new_event_loop()
+                                            asyncio.set_event_loop(loop)
+                                            try:
+                                                # Download the audio file
+                                                audio_path = loop.run_until_complete(download_audio_file(audio_url))
+                                                if audio_path:
+                                                    # Clear the last audio URL after successful download
+                                                    sb.execute_script("window.lastAudioUrl = null;")
+                                                    
+                                                    # Click the play button to simulate human behavior
+                                                    play_button = sb.find_element('[aria-describedby="instructions"]')
+                                                    if play_button:
+                                                        print("Clicking play button...")
+                                                        play_button.click()
+                                                        sb.sleep(1)  # Short wait after clicking play
+                                                    
+                                                    # Process with Gemini and submit answer
+                                                    gemini_response = process_audio_with_gemini(audio_path, instructions)
+                                                    print("Gemini Audio Analysis Result:")
+                                                    print(gemini_response)
+                                                    
+                                                    # Analyze the response to get the option number
+                                                    option_number = analyze_responses([gemini_response])
+                                                    print(f"Extracted option number: {option_number}")
+                                                    
+                                                    if option_number > 0:
+                                                        # Find and fill the answer input
+                                                        answer_input = sb.find_element('#answer-input')
+                                                        if answer_input:
+                                                            print(f"Inputting answer: {option_number}")
+                                                            answer_input.clear()
+                                                            answer_input.send_keys(str(option_number))
+                                                            sb.sleep(1)  # Short wait after input
                                                             
-                                                            # Wait and check for new audio challenge
-                                                            sb.sleep(2)
-                                                            new_audio_url = sb.execute_script("return window.lastAudioUrl;")
-                                                            if not new_audio_url:
-                                                                print("No new audio challenge detected, captcha completed!")
-                                                                break
+                                                            # Find and click submit button
+                                                            submit_button = sb.find_element('button[type="submit"]')
+                                                            if submit_button:
+                                                                print("Found submit button, clicking...")
+                                                                submit_button.click()
+                                                                
+                                                                # Wait and check for new audio challenge
+                                                                sb.sleep(2)
+                                                                new_audio_url = sb.execute_script("return window.lastAudioUrl;")
+                                                                if not new_audio_url:
+                                                                    print("No new audio challenge detected, captcha completed!")
+                                                                    break
+                                                                else:
+                                                                    print("New audio challenge detected, continuing...")
+                                                                    continue
                                                             else:
-                                                                print("New audio challenge detected, continuing...")
-                                                                continue
+                                                                print("Submit button not found")
+                                                                break
                                                         else:
-                                                            print("Submit button not found")
+                                                            print("Answer input field not found")
                                                             break
                                                     else:
-                                                        print("Answer input field not found")
+                                                        print("Invalid option number received from analysis")
                                                         break
                                                 else:
-                                                    print("Invalid option number received from analysis")
+                                                    print("Failed to download audio file")
                                                     break
-                                            else:
-                                                print("Failed to download audio file")
-                                                break
-                                        finally:
-                                            loop.close()
-                                    else:
-                                        print("No audio URL captured")
-                                        break
-                            sb.sleep(110000)
+                                            finally:
+                                                loop.close()
+                                        else:
+                                            print("No audio URL captured")
+                                            break
+                                sb.sleep(110000)
 
 
+                except Exception as e:
+                    print(f"Error while handling iframes: {str(e)}")
+                    print("Detailed error:")
+                    import traceback
+                    print(traceback.format_exc())
+
+                # print("Continuing with long wait...")
+                sb.sleep(31536000)  
+
+                
             except Exception as e:
-                print(f"Error while handling iframes: {str(e)}")
-                print("Detailed error:")
+                print(f'Error during browser setup: {str(e)}')
+                # Print more detailed error information
                 import traceback
                 print(traceback.format_exc())
 
-            # print("Continuing with long wait...")
-            sb.sleep(31536000)  
-
-            
-        except Exception as e:
-            print(f'Error during browser setup: {str(e)}')
-            # Print more detailed error information
-            import traceback
-            print(traceback.format_exc())
+        # After successful completion
+        update_stats(success=True)
+        save_account(account_info['email'], account_info['password'])
+        print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+        
+        return {"status": "success", "email": account_info['email'], "password": account_info['password']}
+        
+    except Exception as e:
+        update_stats(success=False)
+        success_rate = get_success_percentage()
+        print(f"{Fore.RED}Session error: {str(e)}{Fore.RESET}")
+        print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED} | Success Rate: {success_rate:.1f}%{Fore.RESET}")
+        return {"status": "error", "message": str(e)}
 
 async def upload_file_async(path: str) -> any:
     """Upload a single file asynchronously"""
@@ -434,8 +406,37 @@ but something very similar (it's obfuscated on purpose) it can be quite subtle a
         print(traceback.format_exc())
         return f"Error: {str(e)}"
 
-if __name__ == "__main__":
-    selenium_base_with_gemini()
-    #test_gemini_with_latest_screenshots()
+# Add new main function for concurrent execution
+def main():
+    """Main function to run multiple selenium instances concurrently"""
+    print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
+    
+    while True:
+        try:
+            with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_TASKS) as executor:
+                futures = [executor.submit(selenium_base_with_gemini) for _ in range(MAX_CONCURRENT_TASKS)]
+                
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        result = future.result(timeout=600)  # 10 minute timeout per task
+                        if result["status"] == "success":
+                            print(f"{Fore.GREEN}Task completed successfully!{Fore.RESET}")
+                        else:
+                            print(f"{Fore.RED}Task failed: {result['message']}{Fore.RESET}")
+                    except Exception as e:
+                        print(f"{Fore.RED}Task failed with error: {str(e)}{Fore.RESET}")
+                        continue
+        
+        except KeyboardInterrupt:
+            print(f"\n{Fore.YELLOW}Received keyboard interrupt. Shutting down gracefully...{Fore.RESET}")
+            break
+        except Exception as e:
+            print(f"{Fore.RED}Main loop error: {str(e)}{Fore.RESET}")
+            continue
 
+# Update the if __name__ == "__main__" block
+if __name__ == "__main__":
+    main()
+    #selenium_base_with_gemini()
+    #test_gemini_with_latest_screenshots()
 

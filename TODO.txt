@@ -21,3 +21,15 @@ give up on 2captcha, use gemini to solve the captcha using seleniumbase
 ----
 
 try audio captcha 
+
+---
+
+ad handling mulitple challenges to visual challenge 
+
+add saving succesfully generated accounts to txt file. alos add failed number and success percentage to the file. 
+
+
+orgniaze and cleanup experiments with proper naming of attempt method 
+
+
+implmenet concurrency 
