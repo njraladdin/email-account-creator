@@ -1,7 +1,26 @@
-httpx
-beautifulsoup4
-requests
-tls-client
-colorama
+# Selenium automation
+seleniumbase
+
+# Google AI/Gemini
+google-generativeai
+
+# Async support
+aiohttp
+asyncio
+
+# Image processing
+Pillow
+
+# Environment and configuration
+python-dotenv
 pyyaml
-pyexecjs
+
+# Utilities
+colorama
+requests
+
+# Type hints
+typing
+
+# Optional - for router reboot functionality
+paramiko

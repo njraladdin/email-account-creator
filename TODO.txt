@@ -31,3 +31,9 @@ organize and cleanup experiments with proper naming of attempt method
 
 make email adresses ùmroe real (names)
 impelment router reboot 
+
+----
+
+
+add usage guide 
+
