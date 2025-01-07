@@ -17,7 +17,8 @@ from utils import (
     get_success_percentage,
     ATTEMPTS,
     GENNED,
-    get_config
+    get_config,
+    reboot_router_if_allowed
 )
 import sys
 from multiprocessing import Process
@@ -25,8 +26,6 @@ from multiprocessing import Process
 load_dotenv()
 
 config = get_config()
-
-MODEL_NAME = "gemini-2.0-flash-exp"
 
 def add_solution_text(image_path, solution_number):
     """Add solution text to a screenshot with black background at bottom"""
@@ -240,6 +239,12 @@ def selenium_base_with_gemini():
                     update_stats(success=True)
                     save_account(account_info['email'], account_info['password'])
                     print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+                    
+                    # Try to reboot router for IP rotation
+                    reboot_success = reboot_router_if_allowed()
+                    if not reboot_success:
+                        print(f"{Fore.YELLOW}Warning: Router reboot failed, but account creation was successful{Fore.RESET}")
+                    
                     return {"status": "success", "email": account_info['email'], "password": account_info['password']}
                 else:
                     raise ValueError("Account creation process did not complete successfully")
@@ -304,7 +309,7 @@ def process_images_with_gemini(screenshot_paths: List[str]) -> str:
 
         print("Creating Gemini model...")
         model = genai.GenerativeModel(
-            model_name=MODEL_NAME,
+            model_name=config['gemini_model_name'],
             generation_config=generation_config,
         )
 

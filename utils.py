@@ -4,6 +4,8 @@ import json
 from datetime import datetime
 from colorama import init, Fore
 import yaml
+import time
+from reboot_router import reboot_router, get_public_ip
 
 # Initialize colorama
 init()
@@ -132,19 +134,32 @@ def get_config():
     try:
         # Try to load from config.yml
         with open('config.yml', 'r') as f:
-            config = yaml.safe_load(f)
+            config = yaml.safe_load(f) or {}
             
-        # If gemini_api_key is not in config or is the default value, try env var
+        # Check for Gemini API key
         if not config.get('gemini_api_key') or config['gemini_api_key'] == "your-api-key-here":
             env_key = os.getenv("GEMINI_API_KEY")
             if env_key:
                 config['gemini_api_key'] = env_key
             else:
                 raise ValueError("Gemini API key not found in config.yml or environment variables")
-                
-        # Ensure concurrent_tasks exists with default value
-        if 'concurrent_tasks' not in config:
-            config['concurrent_tasks'] = 1
+        
+        # Router settings
+        router_config = config.get('router', {})
+        if not isinstance(router_config, dict):
+            router_config = {}
+            
+        router_config.update({
+            'enabled': os.getenv('ROUTER_ENABLED', str(router_config.get('enabled', True))).lower() == 'true',
+            'ip': os.getenv('ROUTER_IP') or router_config.get('ip'),
+            'username': os.getenv('ROUTER_USERNAME') or router_config.get('username'),
+            'password': os.getenv('ROUTER_PASSWORD') or router_config.get('password'),
+            'reboot_command': os.getenv('ROUTER_REBOOT_COMMAND') or router_config.get('reboot_command', 'reboot'),
+        })
+        config['router'] = router_config
+        
+        # General settings
+        config['concurrent_tasks'] = int(os.getenv('CONCURRENT_TASKS') or config.get('concurrent_tasks', 1))
             
         return config
         
@@ -156,5 +171,59 @@ def get_config():
             
         return {
             'gemini_api_key': env_key,
-            'concurrent_tasks': 1
-        } 
+            'concurrent_tasks': int(os.getenv('CONCURRENT_TASKS', '1')),
+            'router': {
+                'enabled': os.getenv('ROUTER_ENABLED', 'true').lower() == 'true',
+                'ip': os.getenv('ROUTER_IP'),
+                'username': os.getenv('ROUTER_USERNAME'),
+                'password': os.getenv('ROUTER_PASSWORD'),
+                'reboot_command': os.getenv('ROUTER_REBOOT_COMMAND', 'reboot'),
+            }
+        }
+
+def reboot_router_if_allowed() -> bool:
+    """
+    Reboot router if enabled in config
+    Returns: True if reboot was successful or not needed, False if reboot failed
+    """
+    try:
+        config = get_config()
+        router_config = config.get('router', {})
+        
+        if not router_config.get('enabled', False):
+            print("Router reboot is disabled in config")
+            return True
+            
+        print("Initiating router reboot for IP rotation...")
+        initial_ip = get_public_ip()
+        print(f"Current public IP: {initial_ip}")
+        
+        success, message = reboot_router(
+            router_config['ip'],
+            router_config['username'],
+            router_config['password'],
+            router_config['reboot_command']
+        )
+        
+        print(message)
+        
+        if success:
+            print("Waiting for router to reboot and reconnect...")
+            time.sleep(60)  # Wait for router reboot
+            
+            new_ip = get_public_ip()
+            print(f"New public IP: {new_ip}")
+            
+            if initial_ip != new_ip:
+                print(f"{Fore.GREEN}IP rotation successful!{Fore.RESET}")
+                return True
+            else:
+                print(f"{Fore.YELLOW}Warning: IP address remained the same{Fore.RESET}")
+                return True  # Still return True as the reboot itself was successful
+        
+        print(f"{Fore.RED}Router reboot failed{Fore.RESET}")
+        return False
+        
+    except Exception as e:
+        print(f"{Fore.RED}Error during router reboot: {str(e)}{Fore.RESET}")
+        return False 

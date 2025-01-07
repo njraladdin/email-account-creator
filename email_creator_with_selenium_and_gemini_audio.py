@@ -16,7 +16,8 @@ from utils import (
     get_success_percentage,
     ATTEMPTS,
     GENNED,
-    get_config
+    get_config,
+    reboot_router_if_allowed
 )
 import sys
 from multiprocessing import Process
@@ -28,8 +29,6 @@ config = get_config()
 # Use config values
 GEMINI_API_KEY=config['gemini_api_key']
 MAX_CONCURRENT_TASKS = config['concurrent_tasks']
-
-MODEL_NAME = "gemini-2.0-flash-exp"
 
 def selenium_base_with_gemini():
     try:
@@ -237,6 +236,12 @@ def selenium_base_with_gemini():
                     update_stats(success=True)
                     save_account(account_info['email'], account_info['password'])
                     print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+                    
+                    # Try to reboot router for IP rotation
+                    reboot_success = reboot_router_if_allowed()
+                    if not reboot_success:
+                        print(f"{Fore.YELLOW}Warning: Router reboot failed, but account creation was successful{Fore.RESET}")
+                    
                     return {"status": "success", "email": account_info['email'], "password": account_info['password']}
                 else:
                     raise ValueError("Account creation process did not complete successfully")
@@ -372,16 +377,16 @@ def process_audio_with_gemini(audio_path: str, instructions: str) -> str:
         
         # Configure and create the model
         generation_config = {
-  "temperature": 0.6,
-  "top_p": 0.95,
-  "top_k": 40,
-  "max_output_tokens": 8192,
-  "response_mime_type": "text/plain",
-    }
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 8192,
+            "response_mime_type": "text/plain",
+        }
 
         print("Creating Gemini model...")
         model = genai.GenerativeModel(
-            model_name=MODEL_NAME,
+            model_name=config['gemini_model_name'],
             generation_config=generation_config,
         )
 
