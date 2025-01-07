@@ -10,23 +10,6 @@ from reboot_router import reboot_router, get_public_ip
 # Initialize colorama
 init()
 
-# Global tracking variables
-ATTEMPTS = 0
-GENNED = 0
-
-def update_stats(success=False):
-    """Update global statistics"""
-    global ATTEMPTS, GENNED
-    ATTEMPTS += 1
-    if success:
-        GENNED += 1
-
-def get_success_percentage():
-    """Calculate success percentage"""
-    if ATTEMPTS == 0:
-        return 0
-    return (GENNED / ATTEMPTS) * 100
-
 def generate_personal_info():
     """Generate random personal information using names from names.txt"""
     try:
@@ -99,14 +82,13 @@ def save_account(email, password):
         os.makedirs('output')
         
     timestamp = get_timestamp()
-    success_rate = get_success_percentage()
     
-    # Log to console with colors
-    print(f"{Fore.LIGHTBLACK_EX}[{timestamp}] # {Fore.LIGHTCYAN_EX} Account created {Fore.LIGHTBLACK_EX}[ {email}:{password} ] {Fore.YELLOW}({success_rate:.1f}% Success){Fore.RESET}")
+    # Log to console with colors - removed success rate
+    print(f"{Fore.LIGHTBLACK_EX}[{timestamp}] # {Fore.LIGHTCYAN_EX} Account created {Fore.LIGHTBLACK_EX}[ {email}:{password} ]{Fore.RESET}")
     
     # Save to file with timestamp
     with open("output/Genned.txt", "a") as f:
-        f.write(f"[{timestamp}] {email}:{password} ({success_rate:.1f}% Success)\n")
+        f.write(f"[{timestamp}] {email}:{password}\n")
 
 def generate_account_info():
     """Generate complete account information"""

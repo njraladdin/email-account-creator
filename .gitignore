@@ -51,3 +51,4 @@ audio/
 output/Genned.txt 
 package-lock.json
 output/
+latest_logs/

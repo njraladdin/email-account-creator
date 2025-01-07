@@ -12,22 +12,33 @@ from google.ai.generativelanguage_v1beta.types import content
 from colorama import  Fore
 from utils import (
     generate_account_info,
-    update_stats,
     save_account,
-    get_success_percentage,
-    ATTEMPTS,
-    GENNED,
     get_config,
     reboot_router_if_allowed
 )
 import sys
-from multiprocessing import Process
+from threading import Thread
 
 load_dotenv()
 
 config = get_config()
-
 MAX_CAPTCHA_CHALLENGE_ATTEMPTS = config['max_captcha_attempts']  # Get from config instead of hardcoding
+# Simple integer counters
+ATTEMPTS = 0
+GENNED = 0
+
+def update_stats(success=False):
+    """Update statistics"""
+    global ATTEMPTS, GENNED
+    ATTEMPTS += 1
+    if success:
+        GENNED += 1
+
+def get_success_percentage():
+    """Calculate success percentage"""
+    if ATTEMPTS == 0:
+        return 0
+    return (GENNED / ATTEMPTS) * 100
 
 def add_solution_text(image_path, solution_number):
     """Add solution text to a screenshot with black background at bottom"""
@@ -76,8 +87,6 @@ def selenium_base_with_gemini():
         account_info = generate_account_info()
         success = False  # Add success flag
 
-        print('Generated account details:')
-        print(json.dumps(account_info, indent=2))
 
         with SB(uc=True, incognito=True, test=True, locale_code="en") as sb:
             try:
@@ -168,6 +177,13 @@ def selenium_base_with_gemini():
                                     if not current_img:
                                         raise ValueError(f"Image {i+1} not found")
 
+                                    # Check if this is a difficult captcha (10, 15, or 20 images)
+                                    img_text = current_img.text
+                                    if any(str(n) in img_text for n in [10, 15, 20]):
+                                        print(f"{Fore.RED}Detected difficult captcha with {img_text}. Session likely flagged.{Fore.RESET}")
+                                        update_stats(success=False)
+                                        return {"status": "error", "message": f"Session flagged - received difficult captcha with {img_text}"}
+
                                     sb.execute_script("arguments[0].scrollIntoView(true);", current_img)
                                     sb.sleep(1)
                                     
@@ -183,7 +199,7 @@ def selenium_base_with_gemini():
                                             raise ValueError("Next image button not found")
                                         print(f"Clicking to see image {i+2} of {total_images}...")
                                         next_image_button.click()
-                                        sb.sleep(1)
+                                        sb.sleep(0.3)
 
                                 if not screenshot_paths:
                                     raise ValueError("No screenshots captured")
@@ -218,11 +234,22 @@ def selenium_base_with_gemini():
 
                                 print("Found submit button, clicking...")
                                 submit_button.click()
-                                sb.sleep(2)
+                                sb.sleep(3)
+
+                                # Check for failure button
+                                try:
+                                    failure_button = sb.find_element('.match-game-fail.box.screen > button')
+                                    if failure_button:
+                                        print(f"{Fore.RED}Challenge failed! Clicking retry button...{Fore.RESET}")
+                                        failure_button.click()
+                                        sb.sleep(2)
+                                        continue
+                                except Exception:
+                                    print(f"{Fore.GREEN}No failure detected, checking for new challenge...{Fore.RESET}")
 
                                 try:
-                                    new_next_button = sb.find_element('[data-theme="home.verifyButton"]')
-                                    if new_next_button:
+                                    new_next_image_button = sb.find_element('a[aria-label="Navigate to next image"]')
+                                    if new_next_image_button:
                                         print("New challenge detected, continuing...")
                                         continue
                                 except Exception:
@@ -277,6 +304,10 @@ def selenium_base_with_gemini():
 async def upload_file_async(path: str) -> any:
     """Upload a single file asynchronously"""
     try:
+        # Create a new event loop for this thread if needed
+        if not asyncio.get_event_loop().is_running():
+            asyncio.set_event_loop(asyncio.new_event_loop())
+            
         file = genai.upload_file(path, mime_type="image/png")
         print(f"Successfully uploaded: {path}")
         return file
@@ -296,15 +327,18 @@ def process_images_with_gemini(screenshot_paths: List[str]) -> str:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         
-        # Create event loop and run concurrent uploads
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Create and get event loop
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         
-        # Create tasks for all uploads
-        tasks = [upload_file_async(path) for path in screenshot_paths]
+        # Create coroutines for all uploads
+        coroutines = [upload_file_async(path) for path in screenshot_paths]
         
-        # Run all uploads concurrently and wait for results
-        uploaded_files = loop.run_until_complete(asyncio.gather(*tasks))
+        # Run all uploads truly concurrently using asyncio.gather
+        uploaded_files = loop.run_until_complete(asyncio.gather(*coroutines))
         uploaded_files = [f for f in uploaded_files if f is not None]
         
         if not uploaded_files:
@@ -493,24 +527,22 @@ def main():
         if not os.getenv("GEMINI_API_KEY"):
             raise EnvironmentError(f"{Fore.RED}GEMINI_API_KEY not found in environment variables. Please add your Gemini API key to the .env file{Fore.RESET}")
             
-        print(f"{Fore.CYAN}Starting {MAX_CONCURRENT_TASKS} concurrent browser sessions...{Fore.RESET}")
+        print(f"{Fore.CYAN}Starting {config['concurrent_tasks']} concurrent browser sessions...{Fore.RESET}")
         
         while True:
             try:
-                processes = []
-                for _ in range(MAX_CONCURRENT_TASKS):
-                    p = Process(target=selenium_base_with_gemini)
-                    p.start()
-                    processes.append(p)
+                threads = []
+                for _ in range(config['concurrent_tasks']):
+                    t = Thread(target=selenium_base_with_gemini)
+                    t.start()
+                    threads.append(t)
                 
-                # Wait for processes
-                for p in processes:
-                    p.join()
+                # Wait for threads
+                for t in threads:
+                    t.join()
                     
             except KeyboardInterrupt:
                 print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
-                for p in processes:
-                    p.terminate()
                 sys.exit(0)
                 
     except EnvironmentError as e:

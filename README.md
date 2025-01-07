@@ -4,12 +4,18 @@ Automated Outlook account creator using Google's Gemini AI to solve captchas (su
 
 ## Setup
 
-1. Install dependencies:
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/njraladdin/email-account-creator.git
+   cd email-account-creator
+   ```
+
+2. Install dependencies:
    ```
    pip install -r requirements.txt
    ```
 
-2. Configure config.yml:
+3. Configure config.yml:
    ```yaml
    # Required settings
    gemini_api_key: "your-api-key-here"  # Get from https://aistudio.google.com/app/apikey
@@ -28,21 +34,25 @@ Automated Outlook account creator using Google's Gemini AI to solve captchas (su
      reboot_command: "reboot"  # Example: "reboot" or "/ip/system/reboot" or "system restart"
    ```
 
-3. Create names.txt with random names (one per line)
+4. Create names.txt with random names (one per line)
 
 ## Usage
 
-The tool offers two modes for solving Outlook's captcha:
+The tool can solve Arkose Labs captcha (previously FunCaptcha) using either:
 
-1. Visual Mode - Uses Gemini AI to analyze captcha images:
+1. Audio Mode (Recommended) - Solves the audio version of the captcha:
+   ```
+   python email_creator_with_selenium_and_gemini_audio.py
+   ```
+
+OR
+
+2. Visual Mode - Solves the visual version of the same captcha:
    ```
    python email_creator_with_selenium_and_gemini_visual.py
    ```
 
-2. Audio Mode - Uses Gemini AI to solve audio captchas (useful if visual fails):
-   ```
-   python email_creator_with_selenium_and_gemini_audio.py
-   ```
+Audio mode is recommended as it typically has higher success rates.
 
 ## Output & Results
 

@@ -11,16 +11,12 @@ from google.ai.generativelanguage_v1beta.types import content
 from colorama import  Fore
 from utils import (
     generate_account_info,
-    update_stats,
     save_account,
-    get_success_percentage,
-    ATTEMPTS,
-    GENNED,
     get_config,
     reboot_router_if_allowed
 )
 import sys
-from multiprocessing import Process
+from threading import Thread
 
 load_dotenv()
 # Load configuration
@@ -30,6 +26,23 @@ config = get_config()
 GEMINI_API_KEY=config['gemini_api_key']
 MAX_CONCURRENT_TASKS = config['concurrent_tasks']
 MAX_CAPTCHA_CHALLENGE_ATTEMPTS = config['max_captcha_attempts']  # Get from config instead of hardcoding
+
+# Simple integer counters
+ATTEMPTS = 0
+GENNED = 0
+
+def update_stats(success=False):
+    """Update statistics"""
+    global ATTEMPTS, GENNED
+    ATTEMPTS += 1
+    if success:
+        GENNED += 1
+
+def get_success_percentage():
+    """Calculate success percentage"""
+    if ATTEMPTS == 0:
+        return 0
+    return (GENNED / ATTEMPTS) * 100
 
 def selenium_base_with_gemini():
     try:
@@ -245,13 +258,15 @@ def selenium_base_with_gemini():
                 if success:
                     update_stats(success=True)
                     save_account(account_info['email'], account_info['password'])
-                    print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED}{Fore.RESET}")
+                    success_rate = get_success_percentage()
+                    print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED} | Success Rate: {success_rate:.1f}%{Fore.RESET}")
                     
                     # Try to reboot router for IP rotation
                     reboot_success = reboot_router_if_allowed()
                     if not reboot_success:
                         print(f"{Fore.YELLOW}Warning: Router reboot failed, but account creation was successful{Fore.RESET}")
                     
+
                     return {"status": "success", "email": account_info['email'], "password": account_info['password']}
                 else:
                     raise ValueError("Account creation process did not complete successfully")
@@ -408,9 +423,14 @@ def process_audio_with_gemini(audio_path: str, instructions: str) -> str:
 it's intentionally hidden and tried to be covered by other sounds, 
 so try to not be tricked easily. it doesn't have to be exactly it, 
 but something very similar (it's obfuscated on purpose) it can be quite subtle as well and very short, so pay attention to that. and all sorts of tricks.
-listen to the audio multiple times before answering.
+listen to the audio multiple times before answering. the answer IS one of the options, so it's not possible that the answer is not in the options. in case of extreme doubt, just choose the most likely one .
 
-IMPORTANT: the differnet audios are seperated by a voice saying 'OPTION 1' or 'OPTION 2' or 'OPTION 3' so make sure that doesnt confuse you in the audi ochallenge if the audio was related to people speaking. 
+IMPORTANT: the different audios are seperated by a voice saying 'OPTION 1' or 'OPTION 2' or 'OPTION 3' so make sure that doesnt confuse you in the audio challenge if the audio was related to people speaking. 
+
+specific clarifications: 
+-for challenges of repeating pattern, the repeating pattern is basicalyl the same sound played over and over. 
+- if there are more than 1 presumably correct answers, for example the instructions are to spot a fake sound and you found two of the 3 options having fake sounds, then choose the first one, as a normal user would.
+- the challenge can use echo effects as a misleading technique, so pay attention to that.
         """
 
         print("Starting chat session with Gemini...")
@@ -418,7 +438,7 @@ IMPORTANT: the differnet audios are seperated by a voice saying 'OPTION 1' or 'O
         chat_session = model.start_chat(
             history=[{
                 "role": "user",
-                "parts": [audio_file, prompt]
+                "parts": [audio_file, prompt, audio_file]
             }]
         )
 
@@ -443,20 +463,18 @@ def main():
         
         while True:
             try:
-                processes = []
+                threads = []
                 for _ in range(config['concurrent_tasks']):
-                    p = Process(target=selenium_base_with_gemini)
-                    p.start()
-                    processes.append(p)
+                    t = Thread(target=selenium_base_with_gemini)  # Use Thread instead of Process
+                    t.start()
+                    threads.append(t)
                 
-                # Wait for processes
-                for p in processes:
-                    p.join()
+                # Wait for threads
+                for t in threads:
+                    t.join()
                     
             except KeyboardInterrupt:
                 print(f"\n{Fore.YELLOW}Shutting down...{Fore.RESET}")
-                for p in processes:
-                    p.terminate()
                 sys.exit(0)
                 
     except EnvironmentError as e:
@@ -469,5 +487,4 @@ def main():
 if __name__ == "__main__":
     main()
     #selenium_base_with_gemini()
-    #test_gemini_with_latest_screenshots()
 
