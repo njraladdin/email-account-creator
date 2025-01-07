@@ -254,35 +254,38 @@ def selenium_base_with_gemini():
                     print(traceback.format_exc())
                     raise  # Re-raise to be caught by outer try block
 
-                # Move success handling inside the try block
-                if success:
-                    update_stats(success=True)
-                    save_account(account_info['email'], account_info['password'])
-                    success_rate = get_success_percentage()
-                    print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED} | Success Rate: {success_rate:.1f}%{Fore.RESET}")
-                    
-                    # Try to reboot router for IP rotation
-                    reboot_success = reboot_router_if_allowed()
-                    if not reboot_success:
-                        print(f"{Fore.YELLOW}Warning: Router reboot failed, but account creation was successful{Fore.RESET}")
-                    
-
-                    return {"status": "success", "email": account_info['email'], "password": account_info['password']}
-                else:
-                    raise ValueError("Account creation process did not complete successfully")
-
             except Exception as e:
                 print(f'Error during browser automation: {str(e)}')
                 import traceback
                 print(traceback.format_exc())
-                raise  # Re-raise the exception to be caught by outer try block
+                raise  # Re-raise to be caught by outer try block
+
+        # Move success handling outside the with block but inside the outer try
+        if success:
+            update_stats(success=True)
+            save_account(account_info['email'], account_info['password'])
+            success_rate = get_success_percentage()
+            print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED} | Success Rate: {success_rate:.1f}%{Fore.RESET}")
+            return_data = {"status": "success", "email": account_info['email'], "password": account_info['password']}
+        else:
+            raise ValueError("Account creation process did not complete successfully")
 
     except Exception as e:
         update_stats(success=False)
         success_rate = get_success_percentage()
         print(f"{Fore.RED}Session error: {str(e)}{Fore.RESET}")
         print(f"{Fore.MAGENTA}Total Attempts: {ATTEMPTS} | Total Generated: {GENNED} | Success Rate: {success_rate:.1f}%{Fore.RESET}")
-        return {"status": "error", "message": str(e)}
+        return_data = {"status": "error", "message": str(e)}
+
+    finally:
+        # Try to reboot router regardless of success/failure
+        reboot_success = reboot_router_if_allowed()
+        if not reboot_success:
+            print(f"{Fore.YELLOW}Warning: Router reboot failed{Fore.RESET}")
+        
+        if 'return_data' in locals():
+            return return_data
+        return {"status": "error", "message": "Unknown error occurred"}
 
 async def upload_file_async(path: str) -> any:
     """Upload a single file asynchronously"""
