@@ -198,7 +198,7 @@ account_info = {
     'date_created': time.strftime('%Y-%m-%dT%H:%M:%SZ')
 }
 
-print('Generated account details (for manual input):')
+print('Generated account details:')
 print(json.dumps(account_info, indent=2))
 # docs > https://seleniumbase.io/help_docs/uc_mode/#here-are-the-seleniumbase-uc-mode-methods-uc-uctrue
 with SB(uc=True, 

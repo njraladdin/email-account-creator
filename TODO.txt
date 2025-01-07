@@ -26,3 +26,8 @@ add saving successfully generated accounts to txt file. also add failed number a
 implement concurrency
 
 organize and cleanup experiments with proper naming of attempt method
+
+----
+
+make email adresses ùmroe real (names)
+impelment router reboot 

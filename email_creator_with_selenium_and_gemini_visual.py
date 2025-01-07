@@ -75,7 +75,7 @@ def selenium_base_with_gemini():
         account_info = generate_account_info()
         success = False  # Add success flag
 
-        print('Generated account details (for manual input):')
+        print('Generated account details:')
         print(json.dumps(account_info, indent=2))
 
         with SB(uc=True, incognito=True, test=True, locale_code="en") as sb:

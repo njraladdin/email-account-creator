@@ -26,16 +26,23 @@ def get_success_percentage():
     return (GENNED / ATTEMPTS) * 100
 
 def generate_personal_info():
-    """Generate random personal information"""
-    def generate_name(length):
-        consonants = 'bcdfghjklmnpqrstvwxyz'
-        vowels = 'aeiou'
-        name = ''
-        for i in range(length):
-            name += random.choice(consonants if i % 2 == 0 else vowels)
-        return name.capitalize()
+    """Generate random personal information using names from names.txt"""
+    try:
+        with open('names.txt') as f:
+            names = f.read().split('\n')
+            names = [name.strip() for name in names if name.strip()]
+    except FileNotFoundError:
+        raise FileNotFoundError("names.txt file not found in the current directory")
     
-    # Add month letters mapping
+    # Get random names from the list
+    random_first_name = random.choice(names)
+    random_last_name = random.choice(names)
+    
+    # Generate username with birth year (1950-2007)
+    birth_year_for_email = str(random.randint(1950, 2007))
+    username = f"{random_first_name.lower()}{random_last_name.lower()}{birth_year_for_email}"
+    
+    # Rest of the birth date generation for account creation (keeping 1990-1999 for this)
     month_letters = {
         1: 'j',  # January
         2: 'f',  # February
@@ -51,13 +58,10 @@ def generate_personal_info():
         12: 'd'  # December
     }
     
-    random_first_name = generate_name(random.randint(5, 7))
-    random_last_name = generate_name(random.randint(5, 7))
-    username = f"{random_first_name.lower()}{random_last_name.lower()}{random.randint(0, 9999)}"
     birth_day = str(random.randint(1, 28))
     birth_month_num = random.randint(1, 12)
-    birth_month = month_letters[birth_month_num]  # Get letter instead of number
-    birth_year = str(random.randint(1990, 1999))
+    birth_month = month_letters[birth_month_num]
+    birth_year = str(random.randint(1990, 1999))  # This is for account creation
     
     return {
         'username': username,
@@ -118,7 +122,7 @@ def generate_account_info():
         'date_created': datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')
     }
 
-    print('Generated account details (for manual input):')
+    print('Generated account details:')
     print(json.dumps(account_info, indent=2))
     
     return account_info 
