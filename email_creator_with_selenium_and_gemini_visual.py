@@ -27,6 +27,8 @@ load_dotenv()
 
 config = get_config()
 
+MAX_CAPTCHA_CHALLENGE_ATTEMPTS = config['max_captcha_attempts']  # Get from config instead of hardcoding
+
 def add_solution_text(image_path, solution_number):
     """Add solution text to a screenshot with black background at bottom"""
     try:
@@ -128,7 +130,17 @@ def selenium_base_with_gemini():
                         with sb.frame_switch("#game-core-frame"):
                             print("Successfully switched to game-core-frame")
                             
+                            # Initialize challenge counter
+                            challenge_attempts = 0
+                            
                             while True:
+                                challenge_attempts += 1
+                                if challenge_attempts > MAX_CAPTCHA_CHALLENGE_ATTEMPTS:
+                                    print(f"{Fore.RED}Exceeded maximum number of captcha challenges ({MAX_CAPTCHA_CHALLENGE_ATTEMPTS}). Giving up.{Fore.RESET}")
+                                    raise ValueError(f"Failed after {MAX_CAPTCHA_CHALLENGE_ATTEMPTS} captcha challenge attempts")
+                                    
+                                print(f"Captcha Challenge Attempt {challenge_attempts}/{MAX_CAPTCHA_CHALLENGE_ATTEMPTS}")
+                                
                                 next_button = sb.find_element('[data-theme="home.verifyButton"]')
                                 if not next_button:
                                     raise ValueError("Next button not found")

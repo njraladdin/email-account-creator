@@ -160,6 +160,7 @@ def get_config():
         
         # General settings
         config['concurrent_tasks'] = int(os.getenv('CONCURRENT_TASKS') or config.get('concurrent_tasks', 1))
+        config['max_captcha_attempts'] = int(os.getenv('MAX_CAPTCHA_ATTEMPTS') or config.get('max_captcha_attempts', 5))
             
         return config
         
